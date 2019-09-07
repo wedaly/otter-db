@@ -1,0 +1,2 @@
+# otter-db
+Playful RDBMS
