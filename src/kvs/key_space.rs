@@ -26,11 +26,7 @@ impl KeySpace {
             .expect("Could not acquire read lock for key map");
         let val_opt = key_map
             .get(key)
-            .and_then(|version_id| self.version_tbl.retrieve(txn_id, *version_id))
-            .and_then(|version| match version {
-                Version::Value(val) => Some(val.to_vec()),
-                Version::Deleted => None,
-            });
+            .and_then(|version_id| self.version_tbl.retrieve(txn_id, *version_id));
         Ok(val_opt)
     }
 

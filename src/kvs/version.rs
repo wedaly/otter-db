@@ -4,7 +4,6 @@ use std::sync::RwLock;
 
 pub type VersionId = usize;
 
-#[derive(Clone)]
 pub enum Version {
     Value(Vec<u8>),
     Deleted,
@@ -189,7 +188,7 @@ impl VersionTable {
         }
     }
 
-    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> Option<Version> {
+    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> Option<Vec<u8>> {
         let mut current_id = id;
         loop {
             let entries = self
@@ -208,7 +207,11 @@ impl VersionTable {
                     if entry.is_visible_for_txn(txn_id) {
                         // found a version visible to this txn, so return it
                         entry.update_read_ts(txn_id);
-                        return Some(entry.version.clone());
+                        let result = match entry.version {
+                            Version::Deleted => None,
+                            Version::Value(ref v) => Some(v.clone()),
+                        };
+                        return result;
                     }
 
                     match entry.previous {
