@@ -4,10 +4,8 @@ use std::sync::RwLock;
 
 pub type VersionId = usize;
 
-pub enum Version {
-    Value(Vec<u8>),
-    Deleted,
-}
+// None means deleted
+pub type VersionData = Option<Vec<u8>>;
 
 enum VersionWriteLockState {
     Unlocked,
@@ -43,11 +41,15 @@ struct VersionEntry {
     previous: Option<VersionId>,
 
     // Version data
-    version: Version,
+    data: VersionData,
 }
 
 impl VersionEntry {
-    fn new_uncommitted(txn_id: TxnId, v: Version, previous: Option<VersionId>) -> VersionEntry {
+    fn new_uncommitted(
+        txn_id: TxnId,
+        data: VersionData,
+        previous: Option<VersionId>,
+    ) -> VersionEntry {
         VersionEntry {
             // txn holds the write lock until the version is committed
             write_lock_state: VersionWriteLockState::Locked(txn_id),
@@ -63,7 +65,7 @@ impl VersionEntry {
             previous: previous,
 
             // actual data for this version
-            version: v,
+            data: data,
         }
     }
 
@@ -144,8 +146,8 @@ impl VersionTable {
         }
     }
 
-    pub fn append_first_version(&self, txn_id: TxnId, v: Version) -> VersionId {
-        let entry = VersionEntry::new_uncommitted(txn_id, v, None);
+    pub fn append_first_version(&self, txn_id: TxnId, data: VersionData) -> VersionId {
+        let entry = VersionEntry::new_uncommitted(txn_id, data, None);
         let mut entries = self
             .entries
             .write()
@@ -158,13 +160,13 @@ impl VersionTable {
         &self,
         txn_id: TxnId,
         prev_version_id: VersionId,
-        v: Version,
+        data: VersionData,
     ) -> Result<VersionId, Error> {
         let acquired = self.acquire_write_lock(txn_id, prev_version_id)?;
         if acquired {
             // acquired the write lock on the previous version,
             // so create a new version for the uncommitted changes
-            let entry = VersionEntry::new_uncommitted(txn_id, v, Some(prev_version_id));
+            let entry = VersionEntry::new_uncommitted(txn_id, data, Some(prev_version_id));
             let mut entries = self
                 .entries
                 .write()
@@ -183,12 +185,12 @@ impl VersionTable {
                 .ok_or(Error::VersionNotFound)?
                 .write()
                 .expect("Could not acquire write lock on entry");
-            entry.version = v;
+            entry.data = data;
             Ok(prev_version_id)
         }
     }
 
-    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> Option<Vec<u8>> {
+    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> VersionData {
         let mut current_id = id;
         loop {
             let entries = self
@@ -207,11 +209,7 @@ impl VersionTable {
                     if entry.is_visible_for_txn(txn_id) {
                         // found a version visible to this txn, so return it
                         entry.update_read_ts(txn_id);
-                        let result = match entry.version {
-                            Version::Deleted => None,
-                            Version::Value(ref v) => Some(v.clone()),
-                        };
-                        return result;
+                        return entry.data.clone();
                     }
 
                     match entry.previous {

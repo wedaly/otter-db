@@ -1,6 +1,6 @@
 use crate::kvs::error::Error;
 use crate::kvs::txn::TxnId;
-use crate::kvs::version::{Version, VersionId, VersionTable};
+use crate::kvs::version::{VersionData, VersionId, VersionTable};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
@@ -31,11 +31,11 @@ impl KeySpace {
     }
 
     pub fn set(&self, txn_id: TxnId, key: &[u8], val: Vec<u8>) -> Result<(), Error> {
-        self.upsert_uncommitted_version(txn_id, key, Version::Value(val))
+        self.upsert_uncommitted_version(txn_id, key, Some(val))
     }
 
     pub fn delete(&self, txn_id: TxnId, key: &[u8]) -> Result<(), Error> {
-        self.upsert_uncommitted_version(txn_id, key, Version::Deleted)
+        self.upsert_uncommitted_version(txn_id, key, None)
     }
 
     pub fn commit_keys(&self, key_set: &HashSet<Vec<u8>>) {
@@ -73,7 +73,7 @@ impl KeySpace {
         &self,
         txn_id: TxnId,
         key: &[u8],
-        new_version: Version,
+        data: VersionData,
     ) -> Result<(), Error> {
         let mut key_map = self
             .key_map
@@ -82,7 +82,7 @@ impl KeySpace {
         match key_map.get_mut(key) {
             None => {
                 // key doesn't already exist, so insert a new version
-                let version_id = self.version_tbl.append_first_version(txn_id, new_version);
+                let version_id = self.version_tbl.append_first_version(txn_id, data);
                 key_map.insert(key.to_vec(), version_id);
                 Ok(())
             }
@@ -91,7 +91,7 @@ impl KeySpace {
                 let prev_version_id = *v;
                 *v = self
                     .version_tbl
-                    .append_next_version(txn_id, prev_version_id, new_version)?;
+                    .append_next_version(txn_id, prev_version_id, data)?;
                 Ok(())
             }
         }
