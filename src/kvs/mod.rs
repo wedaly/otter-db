@@ -2,6 +2,7 @@ mod error;
 mod key_space;
 mod store;
 mod txn;
+mod value;
 mod version;
 
 pub use error::Error;
