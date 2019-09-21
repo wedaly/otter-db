@@ -1,12 +1,16 @@
 use crate::kvs::error::Error;
 use crate::kvs::txn::TxnId;
+use crate::kvs::value::SerializableValue;
 use std::sync::RwLock;
 
 pub type VersionId = usize;
 
-pub enum Version<'a> {
+pub enum Version<'a, V>
+where
+    V: SerializableValue,
+{
     Deleted,
-    Value(&'a [u8]),
+    Value(&'a V),
 }
 
 enum VersionWriteLockState {
@@ -173,11 +177,14 @@ impl VersionTable {
         }
     }
 
-    pub fn append_first_version(&self, txn_id: TxnId, version: Version) -> VersionId {
+    pub fn append_first_version<V>(&self, txn_id: TxnId, version: Version<V>) -> VersionId
+    where
+        V: SerializableValue,
+    {
         let prev = None;
         let (is_deleted, val_byte_range) = match version {
             Version::Deleted => (true, ValueByteRange::empty()),
-            Version::Value(bytes) => (false, self.write_value_bytes(bytes)),
+            Version::Value(val) => (false, self.write_value_bytes(val)),
         };
         let entry = VersionEntry::new_uncommitted(txn_id, prev, is_deleted, val_byte_range);
         let mut entries = self
@@ -188,15 +195,18 @@ impl VersionTable {
         entries.len() - 1
     }
 
-    pub fn append_next_version(
+    pub fn append_next_version<V>(
         &self,
         txn_id: TxnId,
         prev_version_id: VersionId,
-        version: Version,
-    ) -> Result<VersionId, Error> {
+        version: Version<V>,
+    ) -> Result<VersionId, Error>
+    where
+        V: SerializableValue,
+    {
         let (is_deleted, val_byte_range) = match version {
             Version::Deleted => (true, ValueByteRange::empty()),
-            Version::Value(bytes) => (false, self.write_value_bytes(bytes)),
+            Version::Value(val) => (false, self.write_value_bytes(val)),
         };
         let acquired = self.acquire_write_lock(txn_id, prev_version_id)?;
         if acquired {
@@ -349,14 +359,18 @@ impl VersionTable {
         entry.acquire_write_lock(txn_id)
     }
 
-    fn write_value_bytes(&self, bytes: &[u8]) -> ValueByteRange {
+    fn write_value_bytes<V>(&self, val: &V) -> ValueByteRange
+    where
+        V: SerializableValue,
+    {
         let mut values = self
             .values
             .write()
             .expect("Could not acquire write lock on value bytes");
-        values.extend_from_slice(bytes);
+        let start = values.len();
+        val.serialize(&mut *values);
         ValueByteRange {
-            start: values.len() - bytes.len(),
+            start: start,
             end: values.len(),
         }
     }

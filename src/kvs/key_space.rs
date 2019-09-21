@@ -1,5 +1,6 @@
 use crate::kvs::error::Error;
 use crate::kvs::txn::TxnId;
+use crate::kvs::value::SerializableValue;
 use crate::kvs::version::{Version, VersionId, VersionTable};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
@@ -30,12 +31,15 @@ impl KeySpace {
         Ok(val_opt)
     }
 
-    pub fn set(&self, txn_id: TxnId, key: &[u8], val: &[u8]) -> Result<(), Error> {
+    pub fn set<V>(&self, txn_id: TxnId, key: &[u8], val: &V) -> Result<(), Error>
+    where
+        V: SerializableValue,
+    {
         self.upsert_uncommitted_version(txn_id, key, Version::Value(val))
     }
 
     pub fn delete(&self, txn_id: TxnId, key: &[u8]) -> Result<(), Error> {
-        self.upsert_uncommitted_version(txn_id, key, Version::Deleted)
+        self.upsert_uncommitted_version::<&[u8]>(txn_id, key, Version::Deleted)
     }
 
     pub fn commit_keys(&self, key_set: &HashSet<Vec<u8>>) {
@@ -69,12 +73,15 @@ impl KeySpace {
         }
     }
 
-    pub fn upsert_uncommitted_version(
+    pub fn upsert_uncommitted_version<V>(
         &self,
         txn_id: TxnId,
         key: &[u8],
-        version: Version,
-    ) -> Result<(), Error> {
+        version: Version<V>,
+    ) -> Result<(), Error>
+    where
+        V: SerializableValue,
+    {
         let mut key_map = self
             .key_map
             .write()
