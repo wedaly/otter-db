@@ -1,6 +1,6 @@
 use crate::kvs::error::Error;
 use crate::kvs::txn::TxnId;
-use crate::kvs::value::SerializableValue;
+use crate::kvs::value::{DeserializableValue, SerializableValue};
 use crate::kvs::version::{Version, VersionId, VersionTable};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
@@ -20,15 +20,21 @@ impl KeySpace {
         }
     }
 
-    pub fn get(&self, txn_id: TxnId, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+    pub fn get<V>(&self, txn_id: TxnId, key: &[u8]) -> Result<Option<V>, Error>
+    where
+        V: DeserializableValue,
+    {
         let key_map = self
             .key_map
             .read()
             .expect("Could not acquire read lock for key map");
-        let val_opt = key_map
-            .get(key)
-            .and_then(|version_id| self.version_tbl.retrieve(txn_id, *version_id));
-        Ok(val_opt)
+        match key_map.get(key) {
+            None => Ok(None),
+            Some(version_id) => {
+                let val_opt = self.version_tbl.retrieve(txn_id, *version_id)?;
+                Ok(val_opt)
+            }
+        }
     }
 
     pub fn set<V>(&self, txn_id: TxnId, key: &[u8], val: &V) -> Result<(), Error>

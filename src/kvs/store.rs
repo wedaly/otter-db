@@ -1,7 +1,7 @@
 use crate::kvs::error::Error;
 use crate::kvs::key_space::{KeySpace, KeySpaceId};
 use crate::kvs::txn::{TxnId, TxnManager};
-use crate::kvs::value::SerializableValue;
+use crate::kvs::value::{DeserializableValue, SerializableValue};
 use std::collections::HashSet;
 use std::sync::RwLock;
 
@@ -45,12 +45,15 @@ impl Store {
         })
     }
 
-    pub fn get(
+    pub fn get<V>(
         &self,
         txn_id: TxnId,
         key_space_id_opt: Option<KeySpaceId>,
         key: &[u8],
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<V>, Error>
+    where
+        V: DeserializableValue,
+    {
         self.check_is_valid_txn(txn_id)?;
         let key_space_id = key_space_id_opt.unwrap_or(0);
         let result = self

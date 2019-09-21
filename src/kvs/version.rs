@@ -1,6 +1,6 @@
 use crate::kvs::error::Error;
 use crate::kvs::txn::TxnId;
-use crate::kvs::value::SerializableValue;
+use crate::kvs::value::{DeserializableValue, SerializableValue};
 use std::sync::RwLock;
 
 pub type VersionId = usize;
@@ -39,15 +39,7 @@ struct ValueByteRange {
     end: usize,   // exclusive
 }
 
-impl ValueByteRange {
-    fn empty() -> ValueByteRange {
-        ValueByteRange { start: 0, end: 0 }
-    }
-
-    fn len(&self) -> usize {
-        self.end - self.start
-    }
-}
+const EMPTY_VALUE_BYTE_RANGE: ValueByteRange = ValueByteRange { start: 0, end: 0 };
 
 struct VersionEntry {
     // Txn holding the write lock for this version.
@@ -183,7 +175,7 @@ impl VersionTable {
     {
         let prev = None;
         let (is_deleted, val_byte_range) = match version {
-            Version::Deleted => (true, ValueByteRange::empty()),
+            Version::Deleted => (true, EMPTY_VALUE_BYTE_RANGE),
             Version::Value(val) => (false, self.write_value_bytes(val)),
         };
         let entry = VersionEntry::new_uncommitted(txn_id, prev, is_deleted, val_byte_range);
@@ -205,7 +197,7 @@ impl VersionTable {
         V: SerializableValue,
     {
         let (is_deleted, val_byte_range) = match version {
-            Version::Deleted => (true, ValueByteRange::empty()),
+            Version::Deleted => (true, EMPTY_VALUE_BYTE_RANGE),
             Version::Value(val) => (false, self.write_value_bytes(val)),
         };
         let acquired = self.acquire_write_lock(txn_id, prev_version_id)?;
@@ -242,7 +234,10 @@ impl VersionTable {
         }
     }
 
-    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> Option<Vec<u8>> {
+    pub fn retrieve<V>(&self, txn_id: TxnId, id: VersionId) -> Result<Option<V>, Error>
+    where
+        V: DeserializableValue,
+    {
         let mut current_id = id;
         let val_byte_range: ValueByteRange;
         loop {
@@ -252,7 +247,7 @@ impl VersionTable {
                 .expect("Could not acquire read lock on entries");
             match entries.get(current_id) {
                 None => {
-                    return None;
+                    return Ok(None);
                 }
                 Some(entry_lock) => {
                     let mut entry = entry_lock
@@ -263,7 +258,7 @@ impl VersionTable {
                         // found a version visible to this txn
                         entry.update_read_ts(txn_id);
                         if entry.is_deleted {
-                            return None;
+                            return Ok(None);
                         } else {
                             val_byte_range = entry.val_byte_range;
                             break; // exit the loop to release the lock on entries
@@ -273,7 +268,7 @@ impl VersionTable {
                     match entry.previous {
                         None => {
                             // no version is visible to this txn
-                            return None;
+                            return Ok(None);
                         }
                         Some(previous_id) => {
                             // follow the previous version
@@ -285,14 +280,13 @@ impl VersionTable {
         }
 
         // Found a non-deleted version visible to this txn, so return its value
-        let mut val_buf = Vec::with_capacity(val_byte_range.len());
         let values = self
             .values
             .read()
             .expect("Could not acquire read lock on value bytes");
         let val_slice = &values[val_byte_range.start..val_byte_range.end];
-        val_buf.extend_from_slice(val_slice);
-        Some(val_buf)
+        let val = V::deserialize(val_slice)?;
+        Ok(Some(val))
     }
 
     pub fn commit(&self, version_id: VersionId) {

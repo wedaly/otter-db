@@ -16,7 +16,7 @@ pub trait SerializableValue {
         S: ValueSink;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DeserializationError {
     IncorrectLen,
     InvalidFormat(&'static str),
