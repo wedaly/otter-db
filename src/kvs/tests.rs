@@ -17,7 +17,7 @@ enum Step {
     Get {
         txn_id: TxnId,
         key: &'static str,
-        expect: Result<Option<Vec<u8>>, Error>,
+        expect: Result<Option<String>, Error>,
     },
     BeginTxn {
         expect: TxnId,
@@ -266,7 +266,7 @@ fn test_set_and_get_uncommitted_same_txn() {
         Step::Get {
             txn_id: 0,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::CommitTxn {
             txn_id: 0,
@@ -293,7 +293,7 @@ fn test_insert_and_get_committed() {
         Step::Get {
             txn_id: 2,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::CommitTxn {
             txn_id: 2,
@@ -326,7 +326,7 @@ fn test_update_and_get_committed() {
         Step::Get {
             txn_id: 2,
             key: "foo",
-            expect: Ok(Some(b"updated".to_vec())),
+            expect: Ok(Some("updated".to_string())),
         },
         Step::CommitTxn {
             txn_id: 2,
@@ -440,7 +440,7 @@ fn test_uncommitted_update_visibility() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -477,7 +477,7 @@ fn test_uncommitted_del_visibility() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -509,7 +509,7 @@ fn test_get_set_read_write_conflict() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::Set {
             txn_id: 2,
@@ -547,7 +547,7 @@ fn test_get_del_read_write_conflict() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::Del {
             txn_id: 2,
@@ -684,12 +684,12 @@ fn test_commit_multiple_changes() {
         Step::Get {
             txn_id: 2,
             key: "foo",
-            expect: Ok(Some(b"bing".to_vec())),
+            expect: Ok(Some("bing".to_string())),
         },
         Step::Get {
             txn_id: 2,
             key: "baa",
-            expect: Ok(Some(b"biz".to_vec())),
+            expect: Ok(Some("biz".to_string())),
         },
         Step::CommitTxn {
             txn_id: 2,
@@ -716,7 +716,7 @@ fn test_phantom_insert_then_read_validation() {
         Step::Get {
             txn_id: 1,
             key: "foo",
-            expect: Ok(Some(b"phantom".to_vec())),
+            expect: Ok(Some("phantom".to_string())),
         },
         Step::CommitTxn {
             txn_id: 1,
@@ -781,7 +781,7 @@ fn test_phantom_update_validation() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"phantom".to_vec())),
+            expect: Ok(Some("phantom".to_string())),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -877,7 +877,7 @@ fn test_failed_commit_reverts_insert() {
         Step::Get {
             txn_id: 1,
             key: "foo",
-            expect: Ok(Some(b"phantom".to_vec())),
+            expect: Ok(Some("phantom".to_string())),
         },
         Step::Set {
             txn_id: 1,
@@ -931,7 +931,7 @@ fn test_failed_commit_reverts_update() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"phantom".to_vec())),
+            expect: Ok(Some("phantom".to_string())),
         },
         Step::Set {
             txn_id: 3,
@@ -947,7 +947,7 @@ fn test_failed_commit_reverts_update() {
         Step::Get {
             txn_id: 5,
             key: "foo",
-            expect: Ok(Some(b"phantom".to_vec())),
+            expect: Ok(Some("phantom".to_string())),
         },
         Step::CommitTxn {
             txn_id: 5,
@@ -1005,7 +1005,7 @@ fn test_failed_commit_reverts_delete() {
         Step::Get {
             txn_id: 5,
             key: "bar",
-            expect: Ok(Some(b"revert".to_vec())),
+            expect: Ok(Some("revert".to_string())),
         },
         Step::CommitTxn {
             txn_id: 5,
@@ -1070,7 +1070,7 @@ fn test_abort_update() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -1107,7 +1107,7 @@ fn test_abort_del() {
         Step::Get {
             txn_id: 3,
             key: "foo",
-            expect: Ok(Some(b"bar".to_vec())),
+            expect: Ok(Some("bar".to_string())),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -1158,12 +1158,12 @@ fn test_abort_multiple_changes() {
         Step::Get {
             txn_id: 2,
             key: "foo",
-            expect: Ok(Some(b"bing".to_vec())),
+            expect: Ok(Some("bing".to_string())),
         },
         Step::Get {
             txn_id: 2,
             key: "baa",
-            expect: Ok(Some(b"biz".to_vec())),
+            expect: Ok(Some("biz".to_string())),
         },
         Step::CommitTxn {
             txn_id: 2,
