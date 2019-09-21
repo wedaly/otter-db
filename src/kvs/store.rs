@@ -72,7 +72,7 @@ impl Store {
         txn_id: TxnId,
         key_space_id_opt: Option<KeySpaceId>,
         key: &[u8],
-        val: Vec<u8>,
+        val: &[u8],
     ) -> Result<(), Error> {
         self.check_is_valid_txn(txn_id)?;
         let key_space_id = key_space_id_opt.unwrap_or(0);

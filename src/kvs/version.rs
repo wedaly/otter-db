@@ -4,8 +4,10 @@ use std::sync::RwLock;
 
 pub type VersionId = usize;
 
-// None means deleted
-pub type VersionData = Option<Vec<u8>>;
+pub enum Version<'a> {
+    Deleted,
+    Value(&'a [u8]),
+}
 
 enum VersionWriteLockState {
     Unlocked,
@@ -27,6 +29,22 @@ enum VersionVisibility {
     AnyTxnWithinTimeInterval { begin_ts: TxnId, end_ts: TxnId },
 }
 
+#[derive(Clone, Copy)]
+struct ValueByteRange {
+    start: usize, // inclusive
+    end: usize,   // exclusive
+}
+
+impl ValueByteRange {
+    fn empty() -> ValueByteRange {
+        ValueByteRange { start: 0, end: 0 }
+    }
+
+    fn len(&self) -> usize {
+        self.end - self.start
+    }
+}
+
 struct VersionEntry {
     // Txn holding the write lock for this version.
     write_lock_state: VersionWriteLockState,
@@ -40,15 +58,19 @@ struct VersionEntry {
     // Previous version, if any.
     previous: Option<VersionId>,
 
-    // Version data
-    data: VersionData,
+    // Whether the value was deleted in this version
+    is_deleted: bool,
+
+    // Value byte range (valid only if not deleted)
+    val_byte_range: ValueByteRange,
 }
 
 impl VersionEntry {
     fn new_uncommitted(
         txn_id: TxnId,
-        data: VersionData,
         previous: Option<VersionId>,
+        is_deleted: bool,
+        val_byte_range: ValueByteRange,
     ) -> VersionEntry {
         VersionEntry {
             // txn holds the write lock until the version is committed
@@ -62,10 +84,13 @@ impl VersionEntry {
             read_ts: txn_id,
 
             // link this version to the previous version, if any
-            previous: previous,
+            previous,
 
-            // actual data for this version
-            data: data,
+            // whether the value is deleted in this version
+            is_deleted,
+
+            // start/end byte range for the value
+            val_byte_range,
         }
     }
 
@@ -137,17 +162,24 @@ impl VersionEntry {
 
 pub struct VersionTable {
     entries: RwLock<Vec<RwLock<VersionEntry>>>,
+    values: RwLock<Vec<u8>>,
 }
 
 impl VersionTable {
     pub fn new() -> VersionTable {
         VersionTable {
             entries: RwLock::new(Vec::new()),
+            values: RwLock::new(Vec::new()),
         }
     }
 
-    pub fn append_first_version(&self, txn_id: TxnId, data: VersionData) -> VersionId {
-        let entry = VersionEntry::new_uncommitted(txn_id, data, None);
+    pub fn append_first_version(&self, txn_id: TxnId, version: Version) -> VersionId {
+        let prev = None;
+        let (is_deleted, val_byte_range) = match version {
+            Version::Deleted => (true, ValueByteRange::empty()),
+            Version::Value(bytes) => (false, self.write_value_bytes(bytes)),
+        };
+        let entry = VersionEntry::new_uncommitted(txn_id, prev, is_deleted, val_byte_range);
         let mut entries = self
             .entries
             .write()
@@ -160,13 +192,22 @@ impl VersionTable {
         &self,
         txn_id: TxnId,
         prev_version_id: VersionId,
-        data: VersionData,
+        version: Version,
     ) -> Result<VersionId, Error> {
+        let (is_deleted, val_byte_range) = match version {
+            Version::Deleted => (true, ValueByteRange::empty()),
+            Version::Value(bytes) => (false, self.write_value_bytes(bytes)),
+        };
         let acquired = self.acquire_write_lock(txn_id, prev_version_id)?;
         if acquired {
             // acquired the write lock on the previous version,
             // so create a new version for the uncommitted changes
-            let entry = VersionEntry::new_uncommitted(txn_id, data, Some(prev_version_id));
+            let entry = VersionEntry::new_uncommitted(
+                txn_id,
+                Some(prev_version_id),
+                is_deleted,
+                val_byte_range,
+            );
             let mut entries = self
                 .entries
                 .write()
@@ -185,13 +226,15 @@ impl VersionTable {
                 .ok_or(Error::VersionNotFound)?
                 .write()
                 .expect("Could not acquire write lock on entry");
-            entry.data = data;
+            entry.is_deleted = is_deleted;
+            entry.val_byte_range = val_byte_range;
             Ok(prev_version_id)
         }
     }
 
-    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> VersionData {
+    pub fn retrieve(&self, txn_id: TxnId, id: VersionId) -> Option<Vec<u8>> {
         let mut current_id = id;
+        let val_byte_range: ValueByteRange;
         loop {
             let entries = self
                 .entries
@@ -207,9 +250,14 @@ impl VersionTable {
                         .expect("Could not acquire write lock on entry");
 
                     if entry.is_visible_for_txn(txn_id) {
-                        // found a version visible to this txn, so return it
+                        // found a version visible to this txn
                         entry.update_read_ts(txn_id);
-                        return entry.data.clone();
+                        if entry.is_deleted {
+                            return None;
+                        } else {
+                            val_byte_range = entry.val_byte_range;
+                            break; // exit the loop to release the lock on entries
+                        }
                     }
 
                     match entry.previous {
@@ -225,6 +273,16 @@ impl VersionTable {
                 }
             };
         }
+
+        // Found a non-deleted version visible to this txn, so return its value
+        let mut val_buf = Vec::with_capacity(val_byte_range.len());
+        let values = self
+            .values
+            .read()
+            .expect("Could not acquire read lock on value bytes");
+        let val_slice = &values[val_byte_range.start..val_byte_range.end];
+        val_buf.extend_from_slice(val_slice);
+        Some(val_buf)
     }
 
     pub fn commit(&self, version_id: VersionId) {
@@ -289,5 +347,17 @@ impl VersionTable {
             .expect("Could not acquire write lock on entry");
 
         entry.acquire_write_lock(txn_id)
+    }
+
+    fn write_value_bytes(&self, bytes: &[u8]) -> ValueByteRange {
+        let mut values = self
+            .values
+            .write()
+            .expect("Could not acquire write lock on value bytes");
+        values.extend_from_slice(bytes);
+        ValueByteRange {
+            start: values.len() - bytes.len(),
+            end: values.len(),
+        }
     }
 }
