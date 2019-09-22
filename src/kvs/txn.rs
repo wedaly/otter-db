@@ -1,4 +1,5 @@
 use crate::kvs::error::Error;
+use crate::kvs::key::Key;
 use crate::kvs::key_space::KeySpaceId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -6,18 +7,24 @@ use std::sync::{Mutex, RwLock};
 
 pub type TxnId = usize;
 
-struct KeySet {
-    keyspace_map: Mutex<HashMap<KeySpaceId, HashSet<Vec<u8>>>>,
+struct KeySet<K>
+where
+    K: Key,
+{
+    keyspace_map: Mutex<HashMap<KeySpaceId, HashSet<K>>>,
 }
 
-impl KeySet {
-    fn new() -> KeySet {
+impl<K> KeySet<K>
+where
+    K: Key,
+{
+    fn new() -> KeySet<K> {
         KeySet {
             keyspace_map: Mutex::new(HashMap::new()),
         }
     }
 
-    fn add_key(&self, key_space: KeySpaceId, key: &[u8]) {
+    fn add_key(&self, key_space: KeySpaceId, key: &K) {
         let mut keyspace_map = self
             .keyspace_map
             .lock()
@@ -26,18 +33,18 @@ impl KeySet {
         keyspace_map
             .entry(key_space)
             .and_modify(|set| {
-                set.insert(key.to_vec());
+                set.insert(key.clone());
             })
             .or_insert_with(|| {
                 let mut set = HashSet::new();
-                set.insert(key.to_vec());
+                set.insert(key.clone());
                 set
             });
     }
 
     fn for_each_keyspace_keys<F>(&self, mut f: F)
     where
-        F: FnMut(KeySpaceId, &HashSet<Vec<u8>>),
+        F: FnMut(KeySpaceId, &HashSet<K>),
     {
         let keyspace_map = self
             .keyspace_map
@@ -49,7 +56,7 @@ impl KeySet {
         }
     }
 
-    fn overlaps(&self, other: &KeySet) -> bool {
+    fn overlaps(&self, other: &KeySet<K>) -> bool {
         let keyspace_map = self
             .keyspace_map
             .lock()
@@ -71,19 +78,28 @@ impl KeySet {
     }
 }
 
-struct Txn {
-    write_set: KeySet,
-    read_set: KeySet,
+struct Txn<K>
+where
+    K: Key,
+{
+    write_set: KeySet<K>,
+    read_set: KeySet<K>,
 }
 
-pub struct TxnManager {
+pub struct TxnManager<K>
+where
+    K: Key,
+{
     next_txn_id: AtomicUsize,
-    active_txns: RwLock<BTreeMap<TxnId, Txn>>,
-    recently_committed_txns: Mutex<HashMap<TxnId, Txn>>,
+    active_txns: RwLock<BTreeMap<TxnId, Txn<K>>>,
+    recently_committed_txns: Mutex<HashMap<TxnId, Txn<K>>>,
 }
 
-impl TxnManager {
-    pub fn new() -> TxnManager {
+impl<K> TxnManager<K>
+where
+    K: Key,
+{
+    pub fn new() -> TxnManager<K> {
         TxnManager {
             next_txn_id: AtomicUsize::new(0),
             active_txns: RwLock::new(BTreeMap::new()),
@@ -122,8 +138,8 @@ impl TxnManager {
         abort_keys: G,
     ) -> Result<(), Error>
     where
-        F: FnMut(KeySpaceId, &HashSet<Vec<u8>>),
-        G: FnMut(KeySpaceId, &HashSet<Vec<u8>>),
+        F: FnMut(KeySpaceId, &HashSet<K>),
+        G: FnMut(KeySpaceId, &HashSet<K>),
     {
         // Hold exclusive locks on the active transactions map
         // and the recently committed transactions map for the duration
@@ -178,7 +194,7 @@ impl TxnManager {
 
     pub fn abort_txn<F>(&self, txn_id: TxnId, abort_keys: F) -> Result<(), Error>
     where
-        F: FnMut(KeySpaceId, &HashSet<Vec<u8>>),
+        F: FnMut(KeySpaceId, &HashSet<K>),
     {
         let mut active_txns = self
             .active_txns
@@ -189,11 +205,11 @@ impl TxnManager {
         Ok(())
     }
 
-    pub fn record_write(&self, txn_id: TxnId, key_space: KeySpaceId, key: &[u8]) {
+    pub fn record_write(&self, txn_id: TxnId, key_space: KeySpaceId, key: &K) {
         self.run_on_txn(txn_id, |txn| txn.write_set.add_key(key_space, key))
     }
 
-    pub fn record_read(&self, txn_id: TxnId, key_space: KeySpaceId, key: &[u8]) {
+    pub fn record_read(&self, txn_id: TxnId, key_space: KeySpaceId, key: &K) {
         self.run_on_txn(txn_id, |txn| txn.read_set.add_key(key_space, key))
     }
 
@@ -203,7 +219,7 @@ impl TxnManager {
 
     fn run_on_txn<F>(&self, txn_id: TxnId, mut f: F)
     where
-        F: FnMut(&Txn),
+        F: FnMut(&Txn<K>),
     {
         let active_txns = self
             .active_txns

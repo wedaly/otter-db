@@ -42,7 +42,7 @@ fn run_test(mut steps: Vec<Step>) {
                 val,
                 expect,
             } => {
-                let result = store.set(txn_id, None, key.as_bytes(), &val.as_bytes());
+                let result = store.set(txn_id, None, &key, &val.as_bytes());
                 assert_eq!(result, expect);
             }
             Step::Del {
@@ -50,7 +50,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.delete(txn_id, None, key.as_bytes());
+                let result = store.delete(txn_id, None, &key);
                 assert_eq!(result, expect);
             }
             Step::Get {
@@ -58,7 +58,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.get(txn_id, None, key.as_bytes());
+                let result = store.get(txn_id, None, &key);
                 assert_eq!(result, expect);
             }
             Step::BeginTxn { expect } => {

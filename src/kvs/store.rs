@@ -1,17 +1,24 @@
 use crate::kvs::error::Error;
+use crate::kvs::key::Key;
 use crate::kvs::key_space::{KeySpace, KeySpaceId};
 use crate::kvs::txn::{TxnId, TxnManager};
 use crate::kvs::value::{DeserializableValue, SerializableValue};
 use std::collections::HashSet;
 use std::sync::RwLock;
 
-pub struct Store {
-    txn_manager: TxnManager,
-    key_spaces: RwLock<Vec<KeySpace>>,
+pub struct Store<K>
+where
+    K: Key,
+{
+    txn_manager: TxnManager<K>,
+    key_spaces: RwLock<Vec<KeySpace<K>>>,
 }
 
-impl Store {
-    pub fn new() -> Store {
+impl<K> Store<K>
+where
+    K: Key,
+{
+    pub fn new() -> Store<K> {
         Store {
             txn_manager: TxnManager::new(),
             key_spaces: RwLock::new(vec![KeySpace::new()]),
@@ -49,7 +56,7 @@ impl Store {
         &self,
         txn_id: TxnId,
         key_space_id_opt: Option<KeySpaceId>,
-        key: &[u8],
+        key: &K,
     ) -> Result<Option<V>, Error>
     where
         V: DeserializableValue,
@@ -75,7 +82,7 @@ impl Store {
         &self,
         txn_id: TxnId,
         key_space_id_opt: Option<KeySpaceId>,
-        key: &[u8],
+        key: &K,
         val: &V,
     ) -> Result<(), Error>
     where
@@ -102,7 +109,7 @@ impl Store {
         &self,
         txn_id: TxnId,
         key_space_id_opt: Option<KeySpaceId>,
-        key: &[u8],
+        key: &K,
     ) -> Result<(), Error> {
         self.check_is_valid_txn(txn_id)?;
         let key_space_id = key_space_id_opt.unwrap_or(0);
@@ -129,7 +136,7 @@ impl Store {
         }
     }
 
-    fn commit_keys(&self, key_space_id: KeySpaceId, key_set: &HashSet<Vec<u8>>) {
+    fn commit_keys(&self, key_space_id: KeySpaceId, key_set: &HashSet<K>) {
         self.key_spaces
             .read()
             .expect("Could not acquire read lock for key spaces")
@@ -138,7 +145,7 @@ impl Store {
             .commit_keys(key_set)
     }
 
-    fn abort_keys(&self, key_space_id: KeySpaceId, key_set: &HashSet<Vec<u8>>) {
+    fn abort_keys(&self, key_space_id: KeySpaceId, key_set: &HashSet<K>) {
         self.key_spaces
             .read()
             .expect("Could not acquire read lock for key spaces")

@@ -1,4 +1,5 @@
 use crate::kvs::error::Error;
+use crate::kvs::key::Key;
 use crate::kvs::txn::TxnId;
 use crate::kvs::value::{DeserializableValue, SerializableValue};
 use crate::kvs::version::{Version, VersionId, VersionTable};
@@ -7,21 +8,28 @@ use std::sync::RwLock;
 
 pub type KeySpaceId = usize;
 
-pub struct KeySpace {
-    key_map: RwLock<HashMap<Vec<u8>, VersionId>>,
+pub struct KeySpace<K>
+where
+    K: Key,
+{
+    key_map: RwLock<HashMap<K, VersionId>>,
     version_tbl: VersionTable,
 }
 
-impl KeySpace {
-    pub fn new() -> KeySpace {
+impl<K> KeySpace<K>
+where
+    K: Key,
+{
+    pub fn new() -> KeySpace<K> {
         KeySpace {
             key_map: RwLock::new(HashMap::new()),
             version_tbl: VersionTable::new(),
         }
     }
 
-    pub fn get<V>(&self, txn_id: TxnId, key: &[u8]) -> Result<Option<V>, Error>
+    pub fn get<V>(&self, txn_id: TxnId, key: &K) -> Result<Option<V>, Error>
     where
+        K: Key,
         V: DeserializableValue,
     {
         let key_map = self
@@ -37,18 +45,18 @@ impl KeySpace {
         }
     }
 
-    pub fn set<V>(&self, txn_id: TxnId, key: &[u8], val: &V) -> Result<(), Error>
+    pub fn set<V>(&self, txn_id: TxnId, key: &K, val: &V) -> Result<(), Error>
     where
         V: SerializableValue,
     {
         self.upsert_uncommitted_version(txn_id, key, Version::Value(val))
     }
 
-    pub fn delete(&self, txn_id: TxnId, key: &[u8]) -> Result<(), Error> {
+    pub fn delete(&self, txn_id: TxnId, key: &K) -> Result<(), Error> {
         self.upsert_uncommitted_version::<&[u8]>(txn_id, key, Version::Deleted)
     }
 
-    pub fn commit_keys(&self, key_set: &HashSet<Vec<u8>>) {
+    pub fn commit_keys(&self, key_set: &HashSet<K>) {
         let key_map = self
             .key_map
             .read()
@@ -60,7 +68,7 @@ impl KeySpace {
         }
     }
 
-    pub fn abort_keys(&self, key_set: &HashSet<Vec<u8>>) {
+    pub fn abort_keys(&self, key_set: &HashSet<K>) {
         let mut key_map = self
             .key_map
             .write()
@@ -73,7 +81,7 @@ impl KeySpace {
                     key_map.remove(key);
                 }
                 Some(prev_version_id) => {
-                    key_map.insert(key.to_vec(), prev_version_id);
+                    key_map.insert(key.clone(), prev_version_id);
                 }
             }
         }
@@ -82,7 +90,7 @@ impl KeySpace {
     pub fn upsert_uncommitted_version<V>(
         &self,
         txn_id: TxnId,
-        key: &[u8],
+        key: &K,
         version: Version<V>,
     ) -> Result<(), Error>
     where
@@ -96,7 +104,7 @@ impl KeySpace {
             None => {
                 // key doesn't already exist, so insert a new version
                 let version_id = self.version_tbl.append_first_version(txn_id, version);
-                key_map.insert(key.to_vec(), version_id);
+                key_map.insert(key.clone(), version_id);
                 Ok(())
             }
             Some(v) => {
