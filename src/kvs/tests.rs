@@ -42,7 +42,7 @@ fn run_test(mut steps: Vec<Step>) {
                 val,
                 expect,
             } => {
-                let result = store.set(txn_id, None, &key, &val.as_bytes());
+                let result = store.set(txn_id, None, &key, &val);
                 assert_eq!(result, expect);
             }
             Step::Del {
