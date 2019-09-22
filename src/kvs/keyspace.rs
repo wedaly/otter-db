@@ -7,16 +7,9 @@ use core::hash::Hash;
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
-/// Uniquely identify a keyspace
+/// Uniquely identify a keyspace.
+/// The concrete implementation is defined by callers of this module.
 pub trait KeySpaceId: Hash + Eq + Copy {}
-
-#[derive(Eq, PartialEq, Clone, Copy, Hash)]
-pub struct GlobalKeySpace {}
-impl KeySpaceId for GlobalKeySpace {}
-
-/// Single keyspace for every key, useful for simple applications and testing.
-/// More complex applications will probably want to implement the KeySpaceId trait.
-pub const GLOBAL_KEYSPACE: GlobalKeySpace = GlobalKeySpace {};
 
 /// Stores key-value pairs in an application-defined space of keys.
 pub struct KeySpace<K>

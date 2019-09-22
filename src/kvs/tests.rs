@@ -1,7 +1,11 @@
 use crate::kvs::error::Error;
-use crate::kvs::keyspace::GLOBAL_KEYSPACE;
+use crate::kvs::keyspace::KeySpaceId;
 use crate::kvs::store::Store;
 use crate::kvs::txn::TxnId;
+
+#[derive(Eq, PartialEq, Clone, Copy, Hash)]
+pub struct TestKeySpace {}
+impl KeySpaceId for TestKeySpace {}
 
 enum Step {
     Set {
@@ -35,7 +39,7 @@ enum Step {
 
 fn run_test(mut steps: Vec<Step>) {
     let store = Store::new();
-    store.define_keyspace(GLOBAL_KEYSPACE);
+    store.define_keyspace(TestKeySpace{});
 
     for step in steps.drain(..) {
         match step {
@@ -45,7 +49,7 @@ fn run_test(mut steps: Vec<Step>) {
                 val,
                 expect,
             } => {
-                let result = store.set(txn_id, GLOBAL_KEYSPACE, &key, &val);
+                let result = store.set(txn_id, TestKeySpace{}, &key, &val);
                 assert_eq!(result, expect);
             }
             Step::Del {
@@ -53,7 +57,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.delete(txn_id, GLOBAL_KEYSPACE, &key);
+                let result = store.delete(txn_id, TestKeySpace{}, &key);
                 assert_eq!(result, expect);
             }
             Step::Get {
@@ -61,7 +65,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.get(txn_id, GLOBAL_KEYSPACE, &key);
+                let result = store.get(txn_id, TestKeySpace{}, &key);
                 assert_eq!(result, expect);
             }
             Step::BeginTxn { expect } => {
