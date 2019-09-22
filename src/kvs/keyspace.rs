@@ -3,11 +3,22 @@ use crate::kvs::key::Key;
 use crate::kvs::txn::TxnId;
 use crate::kvs::value::{DeserializableValue, SerializableValue};
 use crate::kvs::version::{Version, VersionId, VersionTable};
+use core::hash::Hash;
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
-pub type KeySpaceId = usize;
+/// Uniquely identify a keyspace
+pub trait KeySpaceId: Hash + Eq + Copy {}
 
+#[derive(Eq, PartialEq, Clone, Copy, Hash)]
+pub struct GlobalKeySpace {}
+impl KeySpaceId for GlobalKeySpace {}
+
+/// Single keyspace for every key, useful for simple applications and testing.
+/// More complex applications will probably want to implement the KeySpaceId trait.
+pub const GLOBAL_KEYSPACE: GlobalKeySpace = GlobalKeySpace {};
+
+/// Stores key-value pairs in an application-defined space of keys.
 pub struct KeySpace<K>
 where
     K: Key,
@@ -56,25 +67,25 @@ where
         self.upsert_uncommitted_version::<&[u8]>(txn_id, key, Version::Deleted)
     }
 
-    pub fn commit_keys(&self, key_set: &HashSet<K>) {
+    pub fn commit_keys(&self, keyset: &HashSet<K>) {
         let key_map = self
             .key_map
             .read()
             .expect("Could not acquire read lock for key map");
 
-        for key in key_set.iter() {
+        for key in keyset.iter() {
             let version_id = key_map.get(key).expect("Could not find key");
             self.version_tbl.commit(*version_id);
         }
     }
 
-    pub fn abort_keys(&self, key_set: &HashSet<K>) {
+    pub fn abort_keys(&self, keyset: &HashSet<K>) {
         let mut key_map = self
             .key_map
             .write()
             .expect("Could not acquire write lock for key map");
 
-        for key in key_set.iter() {
+        for key in keyset.iter() {
             let version_id = key_map.get(key).expect("Could not find key");
             match self.version_tbl.abort(*version_id) {
                 None => {

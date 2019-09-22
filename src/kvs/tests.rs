@@ -1,4 +1,5 @@
 use crate::kvs::error::Error;
+use crate::kvs::keyspace::GLOBAL_KEYSPACE;
 use crate::kvs::store::Store;
 use crate::kvs::txn::TxnId;
 
@@ -34,6 +35,8 @@ enum Step {
 
 fn run_test(mut steps: Vec<Step>) {
     let store = Store::new();
+    store.define_keyspace(GLOBAL_KEYSPACE);
+
     for step in steps.drain(..) {
         match step {
             Step::Set {
@@ -42,7 +45,7 @@ fn run_test(mut steps: Vec<Step>) {
                 val,
                 expect,
             } => {
-                let result = store.set(txn_id, None, &key, &val);
+                let result = store.set(txn_id, GLOBAL_KEYSPACE, &key, &val);
                 assert_eq!(result, expect);
             }
             Step::Del {
@@ -50,7 +53,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.delete(txn_id, None, &key);
+                let result = store.delete(txn_id, GLOBAL_KEYSPACE, &key);
                 assert_eq!(result, expect);
             }
             Step::Get {
@@ -58,7 +61,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.get(txn_id, None, &key);
+                let result = store.get(txn_id, GLOBAL_KEYSPACE, &key);
                 assert_eq!(result, expect);
             }
             Step::BeginTxn { expect } => {

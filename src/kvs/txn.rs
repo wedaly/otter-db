@@ -1,105 +1,38 @@
 use crate::kvs::error::Error;
 use crate::kvs::key::Key;
-use crate::kvs::key_space::KeySpaceId;
+use crate::kvs::keyset::KeySet;
+use crate::kvs::keyspace::KeySpaceId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
 
 pub type TxnId = usize;
 
-struct KeySet<K>
+struct Txn<S, K>
 where
+    S: KeySpaceId,
     K: Key,
 {
-    keyspace_map: Mutex<HashMap<KeySpaceId, HashSet<K>>>,
+    write_set: KeySet<S, K>,
+    read_set: KeySet<S, K>,
 }
 
-impl<K> KeySet<K>
+pub struct TxnManager<S, K>
 where
-    K: Key,
-{
-    fn new() -> KeySet<K> {
-        KeySet {
-            keyspace_map: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn add_key(&self, key_space: KeySpaceId, key: &K) {
-        let mut keyspace_map = self
-            .keyspace_map
-            .lock()
-            .expect("Could not acquire lock on key space map");
-
-        keyspace_map
-            .entry(key_space)
-            .and_modify(|set| {
-                set.insert(key.clone());
-            })
-            .or_insert_with(|| {
-                let mut set = HashSet::new();
-                set.insert(key.clone());
-                set
-            });
-    }
-
-    fn for_each_keyspace_keys<F>(&self, mut f: F)
-    where
-        F: FnMut(KeySpaceId, &HashSet<K>),
-    {
-        let keyspace_map = self
-            .keyspace_map
-            .lock()
-            .expect("Could not acquire lock on key space map");
-
-        for (key_space, key_set) in keyspace_map.iter() {
-            f(*key_space, key_set)
-        }
-    }
-
-    fn overlaps(&self, other: &KeySet<K>) -> bool {
-        let keyspace_map = self
-            .keyspace_map
-            .lock()
-            .expect("Could not acquire lock on key space map");
-
-        for (key_space, key_set) in keyspace_map.iter() {
-            let other_keyspace_map = other
-                .keyspace_map
-                .lock()
-                .expect("Could not acquire lock on other keyspace map");
-            if let Some(other_key_set) = other_keyspace_map.get(key_space) {
-                if !key_set.is_disjoint(other_key_set) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-}
-
-struct Txn<K>
-where
-    K: Key,
-{
-    write_set: KeySet<K>,
-    read_set: KeySet<K>,
-}
-
-pub struct TxnManager<K>
-where
+    S: KeySpaceId,
     K: Key,
 {
     next_txn_id: AtomicUsize,
-    active_txns: RwLock<BTreeMap<TxnId, Txn<K>>>,
-    recently_committed_txns: Mutex<HashMap<TxnId, Txn<K>>>,
+    active_txns: RwLock<BTreeMap<TxnId, Txn<S, K>>>,
+    recently_committed_txns: Mutex<HashMap<TxnId, Txn<S, K>>>,
 }
 
-impl<K> TxnManager<K>
+impl<S, K> TxnManager<S, K>
 where
+    S: KeySpaceId,
     K: Key,
 {
-    pub fn new() -> TxnManager<K> {
+    pub fn new() -> TxnManager<S, K> {
         TxnManager {
             next_txn_id: AtomicUsize::new(0),
             active_txns: RwLock::new(BTreeMap::new()),
@@ -138,8 +71,8 @@ where
         abort_keys: G,
     ) -> Result<(), Error>
     where
-        F: FnMut(KeySpaceId, &HashSet<K>),
-        G: FnMut(KeySpaceId, &HashSet<K>),
+        F: FnMut(S, &HashSet<K>),
+        G: FnMut(S, &HashSet<K>),
     {
         // Hold exclusive locks on the active transactions map
         // and the recently committed transactions map for the duration
@@ -194,7 +127,7 @@ where
 
     pub fn abort_txn<F>(&self, txn_id: TxnId, abort_keys: F) -> Result<(), Error>
     where
-        F: FnMut(KeySpaceId, &HashSet<K>),
+        F: FnMut(S, &HashSet<K>),
     {
         let mut active_txns = self
             .active_txns
@@ -205,12 +138,12 @@ where
         Ok(())
     }
 
-    pub fn record_write(&self, txn_id: TxnId, key_space: KeySpaceId, key: &K) {
-        self.run_on_txn(txn_id, |txn| txn.write_set.add_key(key_space, key))
+    pub fn record_write(&self, txn_id: TxnId, keyspace_id: S, key: &K) {
+        self.run_on_txn(txn_id, |txn| txn.write_set.add_key(keyspace_id, key))
     }
 
-    pub fn record_read(&self, txn_id: TxnId, key_space: KeySpaceId, key: &K) {
-        self.run_on_txn(txn_id, |txn| txn.read_set.add_key(key_space, key))
+    pub fn record_read(&self, txn_id: TxnId, keyspace_id: S, key: &K) {
+        self.run_on_txn(txn_id, |txn| txn.read_set.add_key(keyspace_id, key))
     }
 
     fn get_next_txn_id(&self) -> usize {
@@ -219,7 +152,7 @@ where
 
     fn run_on_txn<F>(&self, txn_id: TxnId, mut f: F)
     where
-        F: FnMut(&Txn<K>),
+        F: FnMut(&Txn<S, K>),
     {
         let active_txns = self
             .active_txns
