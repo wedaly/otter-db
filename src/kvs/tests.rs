@@ -39,7 +39,7 @@ enum Step {
 
 fn run_test(mut steps: Vec<Step>) {
     let store = Store::new();
-    store.define_keyspace(TestKeySpace{});
+    store.define_keyspace(TestKeySpace {});
 
     for step in steps.drain(..) {
         match step {
@@ -49,7 +49,7 @@ fn run_test(mut steps: Vec<Step>) {
                 val,
                 expect,
             } => {
-                let result = store.set(txn_id, TestKeySpace{}, &key, &val);
+                let result = store.set(txn_id, TestKeySpace {}, &key, &val);
                 assert_eq!(result, expect);
             }
             Step::Del {
@@ -57,7 +57,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.delete(txn_id, TestKeySpace{}, &key);
+                let result = store.delete(txn_id, TestKeySpace {}, &key);
                 assert_eq!(result, expect);
             }
             Step::Get {
@@ -65,7 +65,7 @@ fn run_test(mut steps: Vec<Step>) {
                 key,
                 expect,
             } => {
-                let result = store.get(txn_id, TestKeySpace{}, &key);
+                let result = store.get(txn_id, TestKeySpace {}, &key);
                 assert_eq!(result, expect);
             }
             Step::BeginTxn { expect } => {
