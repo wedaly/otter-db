@@ -1,4 +1,4 @@
-use crate::kvs::value::DeserializationError;
+use crate::encode::Error as EncodeError;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error {
@@ -8,11 +8,11 @@ pub enum Error {
     ReadWriteConflict,
     WriteWriteConflict,
     PhantomDetected,
-    DeserializationError(DeserializationError),
+    EncodeError(EncodeError),
 }
 
-impl From<DeserializationError> for Error {
-    fn from(err: DeserializationError) -> Error {
-        Error::DeserializationError(err)
+impl From<EncodeError> for Error {
+    fn from(err: EncodeError) -> Error {
+        Error::EncodeError(err)
     }
 }

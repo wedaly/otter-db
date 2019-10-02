@@ -1,7 +1,7 @@
+use crate::encode::{Decode, Encode};
 use crate::kvs::error::Error;
 use crate::kvs::key::Key;
 use crate::kvs::txn::TxnId;
-use crate::kvs::value::{DeserializableValue, SerializableValue};
 use crate::kvs::version::{Version, VersionId, VersionTable};
 use core::hash::Hash;
 use std::collections::{HashMap, HashSet};
@@ -34,7 +34,7 @@ where
     pub fn get<V>(&self, txn_id: TxnId, key: &K) -> Result<Option<V>, Error>
     where
         K: Key,
-        V: DeserializableValue,
+        V: Decode,
     {
         let key_map = self
             .key_map
@@ -51,7 +51,7 @@ where
 
     pub fn set<V>(&self, txn_id: TxnId, key: &K, val: &V) -> Result<(), Error>
     where
-        V: SerializableValue,
+        V: Encode,
     {
         self.upsert_uncommitted_version(txn_id, key, Version::Value(val))
     }
@@ -98,7 +98,7 @@ where
         version: Version<V>,
     ) -> Result<(), Error>
     where
-        V: SerializableValue,
+        V: Encode,
     {
         let mut key_map = self
             .key_map

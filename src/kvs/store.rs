@@ -1,8 +1,8 @@
+use crate::encode::{Decode, Encode};
 use crate::kvs::error::Error;
 use crate::kvs::key::Key;
 use crate::kvs::keyspace::{KeySpace, KeySpaceId};
 use crate::kvs::txn::{TxnId, TxnManager};
-use crate::kvs::value::{DeserializableValue, SerializableValue};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
@@ -58,7 +58,7 @@ where
 
     pub fn get<V>(&self, txn_id: TxnId, keyspace_id: S, key: &K) -> Result<Option<V>, Error>
     where
-        V: DeserializableValue,
+        V: Decode,
     {
         self.check_is_valid_txn(txn_id)?;
         let result = self
@@ -78,7 +78,7 @@ where
 
     pub fn set<V>(&self, txn_id: TxnId, keyspace_id: S, key: &K, val: &V) -> Result<(), Error>
     where
-        V: SerializableValue,
+        V: Encode,
     {
         self.check_is_valid_txn(txn_id)?;
         let result = self

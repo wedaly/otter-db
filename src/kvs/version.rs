@@ -1,13 +1,13 @@
+use crate::encode::{BytesReader, BytesWriter, Decode, Encode};
 use crate::kvs::error::Error;
 use crate::kvs::txn::TxnId;
-use crate::kvs::value::{DeserializableValue, SerializableValue};
 use std::sync::RwLock;
 
 pub type VersionId = usize;
 
 pub enum Version<'a, V>
 where
-    V: SerializableValue,
+    V: Encode,
 {
     Deleted,
     Value(&'a V),
@@ -171,7 +171,7 @@ impl VersionTable {
 
     pub fn append_first_version<V>(&self, txn_id: TxnId, version: Version<V>) -> VersionId
     where
-        V: SerializableValue,
+        V: Encode,
     {
         let prev = None;
         let (is_deleted, val_byte_range) = match version {
@@ -194,7 +194,7 @@ impl VersionTable {
         version: Version<V>,
     ) -> Result<VersionId, Error>
     where
-        V: SerializableValue,
+        V: Encode,
     {
         let (is_deleted, val_byte_range) = match version {
             Version::Deleted => (true, EMPTY_VALUE_BYTE_RANGE),
@@ -236,7 +236,7 @@ impl VersionTable {
 
     pub fn retrieve<V>(&self, txn_id: TxnId, id: VersionId) -> Result<Option<V>, Error>
     where
-        V: DeserializableValue,
+        V: Decode,
     {
         let mut current_id = id;
         let val_byte_range: ValueByteRange;
@@ -285,7 +285,7 @@ impl VersionTable {
             .read()
             .expect("Could not acquire read lock on value bytes");
         let val_slice = &values[val_byte_range.start..val_byte_range.end];
-        let val = V::deserialize(val_slice)?;
+        let val = V::decode(&mut BytesReader::new(val_slice))?;
         Ok(Some(val))
     }
 
@@ -355,14 +355,15 @@ impl VersionTable {
 
     fn write_value_bytes<V>(&self, val: &V) -> ValueByteRange
     where
-        V: SerializableValue,
+        V: Encode,
     {
         let mut values = self
             .values
             .write()
             .expect("Could not acquire write lock on value bytes");
         let start = values.len();
-        val.serialize(&mut *values);
+        let mut w = BytesWriter::new(&mut *values);
+        val.encode(&mut w);
         ValueByteRange {
             start: start,
             end: values.len(),
