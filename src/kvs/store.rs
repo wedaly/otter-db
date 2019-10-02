@@ -28,10 +28,14 @@ where
     }
 
     pub fn define_keyspace(&self, keyspace_id: S) {
-        self.keyspace_map
+        let mut keyspace_map = self
+            .keyspace_map
             .write()
-            .expect("Could not acquire write lock on keyspace map")
-            .insert(keyspace_id, KeySpace::new());
+            .expect("Could not acquire write lock on keyspace map");
+
+        keyspace_map
+            .entry(keyspace_id)
+            .or_insert_with(KeySpace::new);
     }
 
     pub fn begin_txn(&self) -> TxnId {
