@@ -526,7 +526,7 @@ fn test_get_set_read_write_conflict() {
         },
         Step::CommitTxn {
             txn_id: 2,
-            expect: Ok(()),
+            expect: Err(Error::InvalidTxnId),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -563,7 +563,7 @@ fn test_get_del_read_write_conflict() {
         },
         Step::CommitTxn {
             txn_id: 2,
-            expect: Ok(()),
+            expect: Err(Error::InvalidTxnId),
         },
         Step::CommitTxn {
             txn_id: 3,
@@ -606,7 +606,7 @@ fn test_set_write_conflict() {
         },
         Step::CommitTxn {
             txn_id: 3,
-            expect: Ok(()),
+            expect: Err(Error::InvalidTxnId),
         },
     ])
 }
@@ -644,7 +644,7 @@ fn test_del_write_conflict() {
         },
         Step::CommitTxn {
             txn_id: 3,
-            expect: Ok(()),
+            expect: Err(Error::InvalidTxnId),
         },
     ])
 }

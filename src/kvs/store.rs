@@ -87,7 +87,11 @@ where
             .expect("Could not acquire read lock on keyspace map")
             .get(&keyspace_id)
             .ok_or(Error::UndefinedKeySpace)
-            .and_then(|ks| ks.set(txn_id, key, val));
+            .and_then(|ks| ks.set(txn_id, key, val))
+            .or_else(|err| {
+                self.abort_txn(txn_id).expect("Could not abort txn");
+                Err(err)
+            });
 
         if result.is_ok() {
             self.txn_manager.record_write(txn_id, keyspace_id, key);
@@ -104,7 +108,11 @@ where
             .expect("Could not acquire read lock on keyspace map")
             .get(&keyspace_id)
             .ok_or(Error::UndefinedKeySpace)
-            .and_then(|ks| ks.delete(txn_id, key));
+            .and_then(|ks| ks.delete(txn_id, key))
+            .or_else(|err| {
+                self.abort_txn(txn_id).expect("Could not abort txn");
+                Err(err)
+            });
 
         if result.is_ok() {
             self.txn_manager.record_write(txn_id, keyspace_id, key);
