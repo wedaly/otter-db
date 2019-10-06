@@ -61,19 +61,16 @@ where
         V: Decode,
     {
         self.check_is_valid_txn(txn_id)?;
-        let result = self
-            .keyspace_map
+        self.keyspace_map
             .read()
             .expect("Could not acquire read lock on keyspace map")
             .get(&keyspace_id)
             .ok_or(Error::UndefinedKeySpace)
-            .and_then(|ks| ks.get(txn_id, key));
-
-        if result.is_ok() {
-            self.txn_manager.record_read(txn_id, keyspace_id, key);
-        }
-
-        result
+            .and_then(|ks| ks.get(txn_id, key))
+            .and_then(|v| {
+                self.txn_manager.record_read(txn_id, keyspace_id, key);
+                Ok(v)
+            })
     }
 
     pub fn set<V>(&self, txn_id: TxnId, keyspace_id: S, key: &K, val: &V) -> Result<(), Error>
@@ -81,44 +78,38 @@ where
         V: Encode,
     {
         self.check_is_valid_txn(txn_id)?;
-        let result = self
-            .keyspace_map
+        self.keyspace_map
             .read()
             .expect("Could not acquire read lock on keyspace map")
             .get(&keyspace_id)
             .ok_or(Error::UndefinedKeySpace)
             .and_then(|ks| ks.set(txn_id, key, val))
+            .and_then(|_| {
+                self.txn_manager.record_write(txn_id, keyspace_id, key);
+                Ok(())
+            })
             .or_else(|err| {
                 self.abort_txn(txn_id).expect("Could not abort txn");
                 Err(err)
-            });
-
-        if result.is_ok() {
-            self.txn_manager.record_write(txn_id, keyspace_id, key);
-        }
-
-        result
+            })
     }
 
     pub fn delete(&self, txn_id: TxnId, keyspace_id: S, key: &K) -> Result<(), Error> {
         self.check_is_valid_txn(txn_id)?;
-        let result = self
-            .keyspace_map
+        self.keyspace_map
             .read()
             .expect("Could not acquire read lock on keyspace map")
             .get(&keyspace_id)
             .ok_or(Error::UndefinedKeySpace)
             .and_then(|ks| ks.delete(txn_id, key))
+            .and_then(|_| {
+                self.txn_manager.record_write(txn_id, keyspace_id, key);
+                Ok(())
+            })
             .or_else(|err| {
                 self.abort_txn(txn_id).expect("Could not abort txn");
                 Err(err)
-            });
-
-        if result.is_ok() {
-            self.txn_manager.record_write(txn_id, keyspace_id, key);
-        }
-
-        result
+            })
     }
 
     fn check_is_valid_txn(&self, txn_id: TxnId) -> Result<(), Error> {
