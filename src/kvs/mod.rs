@@ -11,6 +11,3 @@ pub use key::Key;
 pub use keyspace::KeySpaceId;
 pub use store::Store;
 pub use txn::TxnId;
-
-#[cfg(test)]
-mod tests;
