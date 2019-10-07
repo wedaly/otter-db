@@ -39,8 +39,9 @@ where
     }
 
     /// Execute `f` within a transaction, committing on success
-    /// and aborting on failure.  The function `f` should NOT
-    /// commit the txn, abort the txn, begin a new txn, or call `with_txn()`.
+    /// and aborting on failure.  `f` should NOT itself call `with_txn()`
+    /// since doing so will begin and commit/abort a new transaction
+    /// that might conflict with the current transaction.
     pub fn with_txn<F, R, E>(&self, mut f: F) -> Result<R, E>
     where
         E: From<Error>,
