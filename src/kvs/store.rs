@@ -577,6 +577,38 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_and_del_same_txn() {
+        run_test(vec![
+            Step::BeginTxn { expect: 0 },
+            Step::Set {
+                txn_id: 0,
+                key: "foo",
+                val: "bar",
+                expect: Ok(()),
+            },
+            Step::Del {
+                txn_id: 0,
+                key: "foo",
+                expect: Ok(()),
+            },
+            Step::CommitTxn {
+                txn_id: 0,
+                expect: Ok(()),
+            },
+            Step::BeginTxn { expect: 2 },
+            Step::Get {
+                txn_id: 2,
+                key: "foo",
+                expect: Ok(None),
+            },
+            Step::CommitTxn {
+                txn_id: 2,
+                expect: Ok(()),
+            },
+        ]);
+    }
+
+    #[test]
     fn test_uncommitted_update_visibility() {
         run_test(vec![
             Step::BeginTxn { expect: 0 },
