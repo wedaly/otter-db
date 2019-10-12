@@ -12,6 +12,7 @@ impl KvsKeySpace for KeySpace {}
 pub enum Key {
     SystemMeta,
     DatabaseMeta { db: String },
+    TableMeta { db: String, tbl: String },
 }
 
 impl KvsKey for Key {}
