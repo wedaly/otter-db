@@ -18,61 +18,15 @@ impl<'a> Catalog<'a> {
 
     pub fn create_database(&self, db_name: &str) -> Result<(), Error> {
         self.store.with_txn(|txn_id| {
-            let db_meta_key = Key::DatabaseMeta {
-                db: db_name.to_string(),
-            };
-            let db_meta_opt =
-                self.store
-                    .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?;
-
-            if let Some(_) = db_meta_opt {
-                return Err(Error::DatabaseAlreadyExists);
-            }
-
-            self.store.set(
-                txn_id,
-                KeySpace::Catalog,
-                &db_meta_key,
-                &DatabaseMeta::new(),
-            )?;
-
-            let mut system_meta: SystemMeta = self.get_or_create_system_meta(txn_id)?;
-
-            system_meta.insert_db_name(db_name);
-            self.store
-                .set(txn_id, KeySpace::Catalog, &Key::SystemMeta, &system_meta)?;
-            Ok(())
+            self.add_db_meta(txn_id, db_name)
+                .and_then(|_| self.add_db_to_system_meta(txn_id, db_name))
         })
     }
 
     pub fn create_table(&self, db_name: &str, tbl_name: &str) -> Result<(), Error> {
         self.store.with_txn(|txn_id| {
-            let tbl_meta_key = Key::TableMeta {
-                db: db_name.to_string(),
-                tbl: tbl_name.to_string(),
-            };
-            let tbl_meta_opt =
-                self.store
-                    .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?;
-
-            if let Some(_) = tbl_meta_opt {
-                return Err(Error::TableAlreadyExists);
-            }
-
-            self.store
-                .set(txn_id, KeySpace::Catalog, &tbl_meta_key, &TableMeta::new())?;
-
-            let db_meta_key = Key::DatabaseMeta {
-                db: db_name.to_string(),
-            };
-            let mut db_meta = self
-                .store
-                .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
-                .ok_or(Error::DatabaseDoesNotExist)?;
-            db_meta.insert_tbl_name(tbl_name);
-            self.store
-                .set(txn_id, KeySpace::Catalog, &db_meta_key, &db_meta)?;
-            Ok(())
+            self.add_tbl_meta(txn_id, db_name, tbl_name)
+                .and_then(|_| self.add_tbl_to_db_meta(txn_id, db_name, tbl_name))
         })
     }
 
@@ -110,6 +64,79 @@ impl<'a> Catalog<'a> {
             .get(txn_id, KeySpace::Catalog, &Key::SystemMeta)?
             .unwrap_or_else(SystemMeta::new);
         Ok(system_meta)
+    }
+
+    fn add_db_meta(&self, txn_id: TxnId, db_name: &str) -> Result<(), Error> {
+        let db_meta_key = Key::DatabaseMeta {
+            db: db_name.to_string(),
+        };
+        let db_meta_opt =
+            self.store
+                .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?;
+
+        if let Some(_) = db_meta_opt {
+            return Err(Error::DatabaseAlreadyExists);
+        }
+
+        self.store
+            .set(
+                txn_id,
+                KeySpace::Catalog,
+                &db_meta_key,
+                &DatabaseMeta::new(),
+            )
+            .map_err(From::from)
+    }
+
+    fn add_db_to_system_meta(&self, txn_id: TxnId, db_name: &str) -> Result<(), Error> {
+        let mut system_meta: SystemMeta = self.get_or_create_system_meta(txn_id)?;
+
+        system_meta.insert_db_name(db_name);
+
+        self.store
+            .set(txn_id, KeySpace::Catalog, &Key::SystemMeta, &system_meta)
+            .map_err(From::from)
+    }
+
+    fn add_tbl_meta(&self, txn_id: TxnId, db_name: &str, tbl_name: &str) -> Result<(), Error> {
+        let tbl_meta_key = Key::TableMeta {
+            db: db_name.to_string(),
+            tbl: tbl_name.to_string(),
+        };
+
+        let tbl_meta_opt = self
+            .store
+            .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?;
+
+        if let Some(_) = tbl_meta_opt {
+            return Err(Error::TableAlreadyExists);
+        }
+
+        self.store
+            .set(txn_id, KeySpace::Catalog, &tbl_meta_key, &TableMeta::new())
+            .map_err(From::from)
+    }
+
+    fn add_tbl_to_db_meta(
+        &self,
+        txn_id: TxnId,
+        db_name: &str,
+        tbl_name: &str,
+    ) -> Result<(), Error> {
+        let db_meta_key = Key::DatabaseMeta {
+            db: db_name.to_string(),
+        };
+
+        let mut db_meta = self
+            .store
+            .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
+            .ok_or(Error::DatabaseDoesNotExist)?;
+
+        db_meta.insert_tbl_name(tbl_name);
+
+        self.store
+            .set(txn_id, KeySpace::Catalog, &db_meta_key, &db_meta)
+            .map_err(From::from)
     }
 }
 
