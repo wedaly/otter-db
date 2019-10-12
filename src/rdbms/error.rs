@@ -5,6 +5,8 @@ pub enum Error {
     KvsError(KvsError),
     DatabaseAlreadyExists,
     DatabaseDoesNotExist,
+    TableAlreadyExists,
+    TableDoesNotExist,
 }
 
 impl From<KvsError> for Error {

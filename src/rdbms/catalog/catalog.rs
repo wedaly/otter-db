@@ -2,6 +2,7 @@ use crate::kvs::Store;
 use crate::kvs::TxnId;
 use crate::rdbms::catalog::database_meta::DatabaseMeta;
 use crate::rdbms::catalog::system_meta::SystemMeta;
+use crate::rdbms::catalog::table_meta::TableMeta;
 use crate::rdbms::error::Error;
 use crate::rdbms::key::{Key, KeySpace};
 
@@ -44,6 +45,37 @@ impl<'a> Catalog<'a> {
         })
     }
 
+    pub fn create_table(&self, db_name: &str, tbl_name: &str) -> Result<(), Error> {
+        self.store.with_txn(|txn_id| {
+            let tbl_meta_key = Key::TableMeta {
+                db: db_name.to_string(),
+                tbl: tbl_name.to_string(),
+            };
+            let tbl_meta_opt =
+                self.store
+                    .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?;
+
+            if let Some(_) = tbl_meta_opt {
+                return Err(Error::TableAlreadyExists);
+            }
+
+            self.store
+                .set(txn_id, KeySpace::Catalog, &tbl_meta_key, &TableMeta::new())?;
+
+            let db_meta_key = Key::DatabaseMeta {
+                db: db_name.to_string(),
+            };
+            let mut db_meta = self
+                .store
+                .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
+                .ok_or(Error::DatabaseDoesNotExist)?;
+            db_meta.insert_tbl_name(tbl_name);
+            self.store
+                .set(txn_id, KeySpace::Catalog, &db_meta_key, &db_meta)?;
+            Ok(())
+        })
+    }
+
     pub fn get_system_meta(&self) -> Result<SystemMeta, Error> {
         self.store
             .with_txn(|txn_id| self.get_or_create_system_meta(txn_id))
@@ -57,6 +89,18 @@ impl<'a> Catalog<'a> {
             self.store
                 .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
                 .ok_or(Error::DatabaseDoesNotExist)
+        })
+    }
+
+    pub fn get_table_meta(&self, db_name: &str, tbl_name: &str) -> Result<TableMeta, Error> {
+        self.store.with_txn(|txn_id| {
+            let tbl_meta_key = Key::TableMeta {
+                db: db_name.to_string(),
+                tbl: tbl_name.to_string(),
+            };
+            self.store
+                .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?
+                .ok_or(Error::TableDoesNotExist)
         })
     }
 
@@ -132,5 +176,92 @@ mod tests {
             .get_system_meta()
             .expect("Could not get system meta");
         assert_eq!(system_meta.iter_db_names().len(), 0);
+    }
+
+    #[test]
+    fn test_create_table() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_names = vec!["foo", "bar", "baz"];
+        catalog
+            .create_database(&db_name)
+            .expect("Could not create database");
+
+        for t in tbl_names.iter() {
+            catalog
+                .create_table(&db_name, &t)
+                .expect("Could not create table");
+        }
+
+        for t in tbl_names.iter() {
+            catalog
+                .get_table_meta(db_name, t)
+                .expect("Could not get table");
+        }
+    }
+
+    #[test]
+    fn test_create_table_database_does_not_exist() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let result = catalog.create_table(&"notexists", &"foo");
+        assert_eq!(result, Err(Error::DatabaseDoesNotExist));
+    }
+
+    #[test]
+    fn test_create_table_already_exists() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_name = "testtbl";
+        catalog
+            .create_database(&db_name)
+            .expect("Could not create database");
+
+        catalog
+            .create_table(&db_name, &tbl_name)
+            .expect("Could not create table");
+        let result = catalog.create_table(&db_name, &tbl_name);
+        assert_eq!(result, Err(Error::TableAlreadyExists));
+    }
+
+    #[test]
+    fn test_list_database_tables() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let mut tbl_names = vec!["foo", "bar", "baz"];
+        catalog
+            .create_database(&db_name)
+            .expect("Could not create database");
+
+        for t in tbl_names.iter() {
+            catalog
+                .create_table(&db_name, &t)
+                .expect("Could not create table");
+        }
+
+        let db_meta = catalog
+            .get_database_meta(&db_name)
+            .expect("Could not get db meta");
+        let retrieved_tbl_names: Vec<String> =
+            db_meta.iter_tbl_names().map(|s| s.to_string()).collect();
+        tbl_names.sort();
+        assert_eq!(retrieved_tbl_names, tbl_names);
+    }
+
+    #[test]
+    fn test_list_database_tables_no_entries() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        catalog
+            .create_database(&db_name)
+            .expect("Could not create database");
+        let db_meta = catalog
+            .get_database_meta(&db_name)
+            .expect("Could not get db meta");
+        assert_eq!(db_meta.iter_tbl_names().len(), 0);
     }
 }
