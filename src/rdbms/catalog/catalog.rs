@@ -16,18 +16,14 @@ impl<'a> Catalog<'a> {
         Catalog { store }
     }
 
-    pub fn create_database(&self, db_name: &str) -> Result<(), Error> {
-        self.store.with_txn(|txn_id| {
-            self.add_db_meta(txn_id, db_name)
-                .and_then(|_| self.add_db_to_system_meta(txn_id, db_name))
-        })
+    pub fn create_database(&self, txn_id: TxnId, db_name: &str) -> Result<(), Error> {
+        self.add_db_meta(txn_id, db_name)
+            .and_then(|_| self.add_db_to_system_meta(txn_id, db_name))
     }
 
-    pub fn create_table(&self, db_name: &str, tbl_name: &str) -> Result<(), Error> {
-        self.store.with_txn(|txn_id| {
-            self.add_tbl_meta(txn_id, db_name, tbl_name)
-                .and_then(|_| self.add_tbl_to_db_meta(txn_id, db_name, tbl_name))
-        })
+    pub fn create_table(&self, txn_id: TxnId, db_name: &str, tbl_name: &str) -> Result<(), Error> {
+        self.add_tbl_meta(txn_id, db_name, tbl_name)
+            .and_then(|_| self.add_tbl_to_db_meta(txn_id, db_name, tbl_name))
     }
 
     pub fn get_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
@@ -149,12 +145,11 @@ mod tests {
         let store = Store::new();
         let catalog = Catalog::new(&store);
         let db_name = "testdb";
-        catalog
-            .create_database(&db_name)
-            .expect("Could not create database");
-        store
-            .with_txn(|txn_id| catalog.get_database_meta(txn_id, &db_name))
-            .expect("Could not retrieve database");
+        let result: Result<DatabaseMeta, Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.get_database_meta(txn_id, &db_name)
+        });
+        assert_eq!(result.is_ok(), true, "Error occurred: {:?}", result.err());
     }
 
     #[test]
@@ -162,10 +157,11 @@ mod tests {
         let store = Store::new();
         let catalog = Catalog::new(&store);
         let db_name = "testdb";
-        catalog
-            .create_database(&db_name)
-            .expect("Could not create database");
-        let result = catalog.create_database(&db_name);
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.create_database(txn_id, &db_name)?;
+            Ok(())
+        });
         assert_eq!(result, Err(Error::DatabaseAlreadyExists));
     }
 
@@ -174,12 +170,10 @@ mod tests {
         let store = Store::new();
         let catalog = Catalog::new(&store);
         let db_names = vec!["testdb1", "testdb2", "testdb3"];
-        for db_name in db_names.iter() {
-            catalog
-                .create_database(&db_name)
-                .expect("Could not create database");
-        }
         let result: Result<Vec<String>, Error> = store.with_txn(|txn_id| {
+            for db_name in db_names.iter() {
+                catalog.create_database(txn_id, &db_name)?;
+            }
             let system_meta: SystemMeta = catalog.get_system_meta(txn_id)?;
             let retrieved_db_names: Vec<String> =
                 system_meta.iter_db_names().map(|s| s.to_string()).collect();
@@ -206,7 +200,7 @@ mod tests {
             assert_eq!(system_meta.iter_db_names().len(), 0);
             Ok(())
         });
-        result.expect("Could not retrieve system meta");
+        assert_eq!(result.is_ok(), true, "Error occurred: {:?}", result.err());
     }
 
     #[test]
@@ -215,30 +209,28 @@ mod tests {
         let catalog = Catalog::new(&store);
         let db_name = "testdb";
         let tbl_names = vec!["foo", "bar", "baz"];
-        catalog
-            .create_database(&db_name)
-            .expect("Could not create database");
-
-        for t in tbl_names.iter() {
-            catalog
-                .create_table(&db_name, &t)
-                .expect("Could not create table");
-        }
-
         let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+
+            for t in tbl_names.iter() {
+                catalog.create_table(txn_id, &db_name, &t)?;
+            }
+
             for t in tbl_names.iter() {
                 catalog.get_table_meta(txn_id, db_name, t)?;
             }
+
             Ok(())
         });
-        result.expect("Could not get table");
+        assert_eq!(result.is_ok(), true, "Error occurred: {:?}", result.err());
     }
 
     #[test]
     fn test_create_table_database_does_not_exist() {
         let store = Store::new();
         let catalog = Catalog::new(&store);
-        let result = catalog.create_table(&"notexists", &"foo");
+        let result: Result<(), Error> =
+            store.with_txn(|txn_id| catalog.create_table(txn_id, &"notexists", &"foo"));
         assert_eq!(result, Err(Error::DatabaseDoesNotExist));
     }
 
@@ -248,14 +240,11 @@ mod tests {
         let catalog = Catalog::new(&store);
         let db_name = "testdb";
         let tbl_name = "testtbl";
-        catalog
-            .create_database(&db_name)
-            .expect("Could not create database");
-
-        catalog
-            .create_table(&db_name, &tbl_name)
-            .expect("Could not create table");
-        let result = catalog.create_table(&db_name, &tbl_name);
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.create_table(txn_id, &db_name, &tbl_name)?;
+            catalog.create_table(txn_id, &db_name, &tbl_name)
+        });
         assert_eq!(result, Err(Error::TableAlreadyExists));
     }
 
@@ -265,21 +254,19 @@ mod tests {
         let catalog = Catalog::new(&store);
         let db_name = "testdb";
         let mut tbl_names = vec!["foo", "bar", "baz"];
-        catalog
-            .create_database(&db_name)
-            .expect("Could not create database");
+        let result: Result<Vec<String>, Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
 
-        for t in tbl_names.iter() {
-            catalog
-                .create_table(&db_name, &t)
-                .expect("Could not create table");
-        }
+            for t in tbl_names.iter() {
+                catalog.create_table(txn_id, &db_name, &t)?;
+            }
 
-        let db_meta = store
-            .with_txn(|txn_id| catalog.get_database_meta(txn_id, &db_name))
-            .expect("Could not get db meta");
-        let retrieved_tbl_names: Vec<String> =
-            db_meta.iter_tbl_names().map(|s| s.to_string()).collect();
+            let db_meta = catalog.get_database_meta(txn_id, &db_name)?;
+            let tbl_names: Vec<String> = db_meta.iter_tbl_names().map(|s| s.to_string()).collect();
+            Ok(tbl_names)
+        });
+
+        let retrieved_tbl_names = result.expect("Could not retrieve table names");
         tbl_names.sort();
         assert_eq!(retrieved_tbl_names, tbl_names);
     }
@@ -289,12 +276,11 @@ mod tests {
         let store = Store::new();
         let catalog = Catalog::new(&store);
         let db_name = "testdb";
-        catalog
-            .create_database(&db_name)
-            .expect("Could not create database");
-        let db_meta = store
-            .with_txn(|txn_id| catalog.get_database_meta(txn_id, &db_name))
-            .expect("Could not get db meta");
+        let result: Result<DatabaseMeta, Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.get_database_meta(txn_id, &db_name)
+        });
+        let db_meta = result.expect("Could not retrieve db meta");
         assert_eq!(db_meta.iter_tbl_names().len(), 0);
     }
 }
