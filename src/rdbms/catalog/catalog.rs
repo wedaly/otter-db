@@ -76,32 +76,32 @@ impl<'a> Catalog<'a> {
         })
     }
 
-    pub fn get_system_meta(&self) -> Result<SystemMeta, Error> {
+    pub fn get_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
+        self.get_or_create_system_meta(txn_id)
+    }
+
+    pub fn get_database_meta(&self, txn_id: TxnId, db_name: &str) -> Result<DatabaseMeta, Error> {
+        let db_meta_key = Key::DatabaseMeta {
+            db: db_name.to_string(),
+        };
         self.store
-            .with_txn(|txn_id| self.get_or_create_system_meta(txn_id))
+            .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
+            .ok_or(Error::DatabaseDoesNotExist)
     }
 
-    pub fn get_database_meta(&self, db_name: &str) -> Result<DatabaseMeta, Error> {
-        self.store.with_txn(|txn_id| {
-            let db_meta_key = Key::DatabaseMeta {
-                db: db_name.to_string(),
-            };
-            self.store
-                .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
-                .ok_or(Error::DatabaseDoesNotExist)
-        })
-    }
-
-    pub fn get_table_meta(&self, db_name: &str, tbl_name: &str) -> Result<TableMeta, Error> {
-        self.store.with_txn(|txn_id| {
-            let tbl_meta_key = Key::TableMeta {
-                db: db_name.to_string(),
-                tbl: tbl_name.to_string(),
-            };
-            self.store
-                .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?
-                .ok_or(Error::TableDoesNotExist)
-        })
+    pub fn get_table_meta(
+        &self,
+        txn_id: TxnId,
+        db_name: &str,
+        tbl_name: &str,
+    ) -> Result<TableMeta, Error> {
+        let tbl_meta_key = Key::TableMeta {
+            db: db_name.to_string(),
+            tbl: tbl_name.to_string(),
+        };
+        self.store
+            .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?
+            .ok_or(Error::TableDoesNotExist)
     }
 
     fn get_or_create_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
@@ -125,8 +125,8 @@ mod tests {
         catalog
             .create_database(&db_name)
             .expect("Could not create database");
-        catalog
-            .get_database_meta(&db_name)
+        store
+            .with_txn(|txn_id| catalog.get_database_meta(txn_id, &db_name))
             .expect("Could not retrieve database");
     }
 
@@ -152,11 +152,13 @@ mod tests {
                 .create_database(&db_name)
                 .expect("Could not create database");
         }
-        let system_meta = catalog
-            .get_system_meta()
-            .expect("Could not get system meta");
-        let retrieved_db_names: Vec<String> =
-            system_meta.iter_db_names().map(|s| s.to_string()).collect();
+        let result: Result<Vec<String>, Error> = store.with_txn(|txn_id| {
+            let system_meta: SystemMeta = catalog.get_system_meta(txn_id)?;
+            let retrieved_db_names: Vec<String> =
+                system_meta.iter_db_names().map(|s| s.to_string()).collect();
+            Ok(retrieved_db_names)
+        });
+        let retrieved_db_names = result.expect("Could not retrieve db names");
         assert_eq!(retrieved_db_names, db_names);
     }
 
@@ -164,7 +166,7 @@ mod tests {
     fn test_get_database_does_not_exist() {
         let store = Store::new();
         let catalog = Catalog::new(&store);
-        let result = catalog.get_database_meta(&"notexist");
+        let result = store.with_txn(|txn_id| catalog.get_database_meta(txn_id, &"notexist"));
         assert_eq!(result, Err(Error::DatabaseDoesNotExist));
     }
 
@@ -172,10 +174,12 @@ mod tests {
     fn test_list_database_no_entries() {
         let store = Store::new();
         let catalog = Catalog::new(&store);
-        let system_meta = catalog
-            .get_system_meta()
-            .expect("Could not get system meta");
-        assert_eq!(system_meta.iter_db_names().len(), 0);
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            let system_meta = catalog.get_system_meta(txn_id)?;
+            assert_eq!(system_meta.iter_db_names().len(), 0);
+            Ok(())
+        });
+        result.expect("Could not retrieve system meta");
     }
 
     #[test]
@@ -194,11 +198,13 @@ mod tests {
                 .expect("Could not create table");
         }
 
-        for t in tbl_names.iter() {
-            catalog
-                .get_table_meta(db_name, t)
-                .expect("Could not get table");
-        }
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            for t in tbl_names.iter() {
+                catalog.get_table_meta(txn_id, db_name, t)?;
+            }
+            Ok(())
+        });
+        result.expect("Could not get table");
     }
 
     #[test]
@@ -242,8 +248,8 @@ mod tests {
                 .expect("Could not create table");
         }
 
-        let db_meta = catalog
-            .get_database_meta(&db_name)
+        let db_meta = store
+            .with_txn(|txn_id| catalog.get_database_meta(txn_id, &db_name))
             .expect("Could not get db meta");
         let retrieved_tbl_names: Vec<String> =
             db_meta.iter_tbl_names().map(|s| s.to_string()).collect();
@@ -259,8 +265,8 @@ mod tests {
         catalog
             .create_database(&db_name)
             .expect("Could not create database");
-        let db_meta = catalog
-            .get_database_meta(&db_name)
+        let db_meta = store
+            .with_txn(|txn_id| catalog.get_database_meta(txn_id, &db_name))
             .expect("Could not get db meta");
         assert_eq!(db_meta.iter_tbl_names().len(), 0);
     }
