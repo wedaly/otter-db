@@ -17,13 +17,13 @@ impl<'a> Catalog<'a> {
     }
 
     pub fn create_database(&self, txn_id: TxnId, db_name: &str) -> Result<(), Error> {
-        self.add_db_meta(txn_id, db_name)
-            .and_then(|_| self.add_db_to_system_meta(txn_id, db_name))
+        self.add_db_meta(txn_id, db_name)?;
+        self.add_db_to_system_meta(txn_id, db_name)
     }
 
     pub fn create_table(&self, txn_id: TxnId, db_name: &str, tbl_name: &str) -> Result<(), Error> {
-        self.add_tbl_meta(txn_id, db_name, tbl_name)
-            .and_then(|_| self.add_tbl_to_db_meta(txn_id, db_name, tbl_name))
+        self.add_tbl_meta(txn_id, db_name, tbl_name)?;
+        self.add_tbl_to_db_meta(txn_id, db_name, tbl_name)
     }
 
     pub fn get_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
