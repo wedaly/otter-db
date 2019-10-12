@@ -1,16 +1,16 @@
-use crate::kvs::Error as KvsError;
+use crate::kvs;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-    KvsError(KvsError),
+    KvsError(kvs::Error),
     DatabaseAlreadyExists,
     DatabaseDoesNotExist,
     TableAlreadyExists,
     TableDoesNotExist,
 }
 
-impl From<KvsError> for Error {
-    fn from(err: KvsError) -> Error {
+impl From<kvs::Error> for Error {
+    fn from(err: kvs::Error) -> Error {
         Error::KvsError(err)
     }
 }

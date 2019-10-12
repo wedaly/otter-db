@@ -1,12 +1,11 @@
-use crate::kvs::Key as KvsKey;
-use crate::kvs::KeySpaceId as KvsKeySpace;
+use crate::kvs;
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy)]
 pub enum KeySpace {
     Catalog,
 }
 
-impl KvsKeySpace for KeySpace {}
+impl kvs::KeySpaceId for KeySpace {}
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub enum Key {
@@ -15,4 +14,4 @@ pub enum Key {
     TableMeta { db: String, tbl: String },
 }
 
-impl KvsKey for Key {}
+impl kvs::Key for Key {}
