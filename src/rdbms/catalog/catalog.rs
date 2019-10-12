@@ -1,5 +1,7 @@
 use crate::kvs::Store;
-use crate::rdbms::catalog::database::{Database, DatabaseNameSet};
+use crate::kvs::TxnId;
+use crate::rdbms::catalog::database_meta::DatabaseMeta;
+use crate::rdbms::catalog::system_meta::SystemMeta;
 use crate::rdbms::error::Error;
 use crate::rdbms::key::{Key, KeySpace};
 
@@ -15,47 +17,55 @@ impl<'a> Catalog<'a> {
 
     pub fn create_database(&self, db_name: &str) -> Result<(), Error> {
         self.store.with_txn(|txn_id| {
-            let db_key = Key::Database(db_name.to_string());
-            let db_opt = self
-                .store
-                .get::<Database>(txn_id, KeySpace::Catalog, &db_key)?;
+            let db_meta_key = Key::DatabaseMeta {
+                db: db_name.to_string(),
+            };
+            let db_meta_opt =
+                self.store
+                    .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?;
 
-            if let Some(_) = db_opt {
+            if let Some(_) = db_meta_opt {
                 return Err(Error::DatabaseAlreadyExists);
             }
 
-            self.store
-                .set(txn_id, KeySpace::Catalog, &db_key, &Database::new())?;
+            self.store.set(
+                txn_id,
+                KeySpace::Catalog,
+                &db_meta_key,
+                &DatabaseMeta::new(),
+            )?;
 
-            let mut db_set: DatabaseNameSet = self
-                .store
-                .get(txn_id, KeySpace::Catalog, &Key::DatabaseNameSet)?
-                .unwrap_or_else(DatabaseNameSet::new);
+            let mut system_meta: SystemMeta = self.get_or_create_system_meta(txn_id)?;
 
-            db_set.insert(db_name);
+            system_meta.insert_db_name(db_name);
             self.store
-                .set(txn_id, KeySpace::Catalog, &Key::DatabaseNameSet, &db_set)?;
+                .set(txn_id, KeySpace::Catalog, &Key::SystemMeta, &system_meta)?;
             Ok(())
         })
     }
 
-    pub fn get_database(&self, db_name: &str) -> Result<Database, Error> {
+    pub fn get_system_meta(&self) -> Result<SystemMeta, Error> {
+        self.store
+            .with_txn(|txn_id| self.get_or_create_system_meta(txn_id))
+    }
+
+    pub fn get_database_meta(&self, db_name: &str) -> Result<DatabaseMeta, Error> {
         self.store.with_txn(|txn_id| {
-            let db_key = Key::Database(db_name.to_string());
+            let db_meta_key = Key::DatabaseMeta {
+                db: db_name.to_string(),
+            };
             self.store
-                .get::<Database>(txn_id, KeySpace::Catalog, &db_key)?
+                .get::<DatabaseMeta>(txn_id, KeySpace::Catalog, &db_meta_key)?
                 .ok_or(Error::DatabaseDoesNotExist)
         })
     }
 
-    pub fn list_databases(&self) -> Result<DatabaseNameSet, Error> {
-        self.store.with_txn(|txn_id| {
-            let db_set: DatabaseNameSet = self
-                .store
-                .get(txn_id, KeySpace::Catalog, &Key::DatabaseNameSet)?
-                .unwrap_or_else(DatabaseNameSet::new);
-            Ok(db_set)
-        })
+    fn get_or_create_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
+        let system_meta = self
+            .store
+            .get(txn_id, KeySpace::Catalog, &Key::SystemMeta)?
+            .unwrap_or_else(SystemMeta::new);
+        Ok(system_meta)
     }
 }
 
@@ -72,7 +82,7 @@ mod tests {
             .create_database(&db_name)
             .expect("Could not create database");
         catalog
-            .get_database(&db_name)
+            .get_database_meta(&db_name)
             .expect("Could not retrieve database");
     }
 
@@ -98,8 +108,11 @@ mod tests {
                 .create_database(&db_name)
                 .expect("Could not create database");
         }
-        let db_name_set = catalog.list_databases().expect("Could not list databases");
-        let retrieved_db_names: Vec<String> = db_name_set.iter().map(|s| s.to_string()).collect();
+        let system_meta = catalog
+            .get_system_meta()
+            .expect("Could not get system meta");
+        let retrieved_db_names: Vec<String> =
+            system_meta.iter_db_names().map(|s| s.to_string()).collect();
         assert_eq!(retrieved_db_names, db_names);
     }
 
@@ -107,7 +120,7 @@ mod tests {
     fn test_get_database_does_not_exist() {
         let store = Store::new();
         let catalog = Catalog::new(&store);
-        let result = catalog.get_database(&"notexist");
+        let result = catalog.get_database_meta(&"notexist");
         assert_eq!(result, Err(Error::DatabaseDoesNotExist));
     }
 
@@ -115,7 +128,9 @@ mod tests {
     fn test_list_database_no_entries() {
         let store = Store::new();
         let catalog = Catalog::new(&store);
-        let db_name_set = catalog.list_databases().expect("Could not list databases");
-        assert_eq!(db_name_set.iter().len(), 0);
+        let system_meta = catalog
+            .get_system_meta()
+            .expect("Could not get system meta");
+        assert_eq!(system_meta.iter_db_names().len(), 0);
     }
 }

@@ -10,8 +10,8 @@ impl KvsKeySpace for KeySpace {}
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub enum Key {
-    DatabaseNameSet,
-    Database(String),
+    SystemMeta,
+    DatabaseMeta { db: String },
 }
 
 impl KvsKey for Key {}
