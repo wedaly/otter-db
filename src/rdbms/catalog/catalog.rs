@@ -6,6 +6,7 @@ use crate::rdbms::catalog::system_meta::SystemMeta;
 use crate::rdbms::catalog::table_meta::TableMeta;
 use crate::rdbms::error::Error;
 use crate::rdbms::key::{Key, KeySpace};
+use crate::rdbms::DataType;
 
 pub struct Catalog<'a> {
     store: &'a Store<KeySpace, Key>,
@@ -33,8 +34,9 @@ impl<'a> Catalog<'a> {
         db_name: &str,
         tbl_name: &str,
         col_name: &str,
+        data_type: DataType,
     ) -> Result<(), Error> {
-        self.add_col_meta(txn_id, db_name, tbl_name, col_name)?;
+        self.add_col_meta(txn_id, db_name, tbl_name, col_name, data_type)?;
         self.add_col_to_tbl_meta(txn_id, db_name, tbl_name, col_name)
     }
 
@@ -170,6 +172,7 @@ impl<'a> Catalog<'a> {
         db_name: &str,
         tbl_name: &str,
         col_name: &str,
+        data_type: DataType,
     ) -> Result<(), Error> {
         let col_meta_key = Key::ColumnMeta {
             db: db_name.to_string(),
@@ -186,7 +189,12 @@ impl<'a> Catalog<'a> {
         }
 
         self.store
-            .set(txn_id, KeySpace::Catalog, &col_meta_key, &ColumnMeta::new())
+            .set(
+                txn_id,
+                KeySpace::Catalog,
+                &col_meta_key,
+                &ColumnMeta::new(data_type),
+            )
             .map_err(From::from)
     }
 
@@ -373,7 +381,7 @@ mod tests {
         let result: Result<(), Error> = store.with_txn(|txn_id| {
             catalog.create_database(txn_id, &db_name)?;
             catalog.create_table(txn_id, &db_name, &tbl_name)?;
-            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name)
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name, DataType::Int64)
         });
         assert_eq!(result.is_ok(), true, "Error occurred {:?}", result.err());
     }
@@ -385,8 +393,9 @@ mod tests {
         let db_name = "testdb";
         let tbl_name = "testtbl";
         let col_name = "testcol";
-        let result: Result<(), Error> =
-            store.with_txn(|txn_id| catalog.create_column(txn_id, &db_name, &tbl_name, &col_name));
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name, DataType::Int64)
+        });
         assert_eq!(result, Err(Error::TableDoesNotExist));
     }
 
@@ -400,8 +409,8 @@ mod tests {
         let result: Result<(), Error> = store.with_txn(|txn_id| {
             catalog.create_database(txn_id, &db_name)?;
             catalog.create_table(txn_id, &db_name, &tbl_name)?;
-            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name)?;
-            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name)
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name, DataType::Int64)?;
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name, DataType::Int64)
         });
         assert_eq!(result, Err(Error::ColumnAlreadyExists));
     }
@@ -417,7 +426,7 @@ mod tests {
             catalog.create_database(txn_id, &db_name)?;
             catalog.create_table(txn_id, &db_name, &tbl_name)?;
             for c in col_names.iter() {
-                catalog.create_column(txn_id, &db_name, &tbl_name, &c)?;
+                catalog.create_column(txn_id, &db_name, &tbl_name, &c, DataType::Int64)?;
             }
             let tbl_meta = catalog.get_table_meta(txn_id, &db_name, &tbl_name)?;
             let retrieved_col_names: Vec<String> =
