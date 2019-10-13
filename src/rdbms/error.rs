@@ -7,6 +7,8 @@ pub enum Error {
     DatabaseDoesNotExist,
     TableAlreadyExists,
     TableDoesNotExist,
+    ColumnAlreadyExists,
+    ColumnDoesNotExist,
 }
 
 impl From<kvs::Error> for Error {

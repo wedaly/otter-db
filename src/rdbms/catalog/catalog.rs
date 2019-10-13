@@ -1,5 +1,6 @@
 use crate::kvs::Store;
 use crate::kvs::TxnId;
+use crate::rdbms::catalog::column_meta::ColumnMeta;
 use crate::rdbms::catalog::database_meta::DatabaseMeta;
 use crate::rdbms::catalog::system_meta::SystemMeta;
 use crate::rdbms::catalog::table_meta::TableMeta;
@@ -24,6 +25,17 @@ impl<'a> Catalog<'a> {
     pub fn create_table(&self, txn_id: TxnId, db_name: &str, tbl_name: &str) -> Result<(), Error> {
         self.add_tbl_meta(txn_id, db_name, tbl_name)?;
         self.add_tbl_to_db_meta(txn_id, db_name, tbl_name)
+    }
+
+    pub fn create_column(
+        &self,
+        txn_id: TxnId,
+        db_name: &str,
+        tbl_name: &str,
+        col_name: &str,
+    ) -> Result<(), Error> {
+        self.add_col_meta(txn_id, db_name, tbl_name, col_name)?;
+        self.add_col_to_tbl_meta(txn_id, db_name, tbl_name, col_name)
     }
 
     pub fn get_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
@@ -52,6 +64,23 @@ impl<'a> Catalog<'a> {
         self.store
             .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?
             .ok_or(Error::TableDoesNotExist)
+    }
+
+    pub fn get_column_meta(
+        &self,
+        txn_id: TxnId,
+        db_name: &str,
+        tbl_name: &str,
+        col_name: &str,
+    ) -> Result<ColumnMeta, Error> {
+        let col_meta_key = Key::ColumnMeta {
+            db: db_name.to_string(),
+            tbl: tbl_name.to_string(),
+            col: col_name.to_string(),
+        };
+        self.store
+            .get::<ColumnMeta>(txn_id, KeySpace::Catalog, &col_meta_key)?
+            .ok_or(Error::ColumnDoesNotExist)
     }
 
     fn get_or_create_system_meta(&self, txn_id: TxnId) -> Result<SystemMeta, Error> {
@@ -132,6 +161,56 @@ impl<'a> Catalog<'a> {
 
         self.store
             .set(txn_id, KeySpace::Catalog, &db_meta_key, &db_meta)
+            .map_err(From::from)
+    }
+
+    fn add_col_meta(
+        &self,
+        txn_id: TxnId,
+        db_name: &str,
+        tbl_name: &str,
+        col_name: &str,
+    ) -> Result<(), Error> {
+        let col_meta_key = Key::ColumnMeta {
+            db: db_name.to_string(),
+            tbl: tbl_name.to_string(),
+            col: col_name.to_string(),
+        };
+
+        let col_meta_opt =
+            self.store
+                .get::<ColumnMeta>(txn_id, KeySpace::Catalog, &col_meta_key)?;
+
+        if let Some(_) = col_meta_opt {
+            return Err(Error::ColumnAlreadyExists);
+        }
+
+        self.store
+            .set(txn_id, KeySpace::Catalog, &col_meta_key, &ColumnMeta::new())
+            .map_err(From::from)
+    }
+
+    fn add_col_to_tbl_meta(
+        &self,
+        txn_id: TxnId,
+        db_name: &str,
+        tbl_name: &str,
+        col_name: &str,
+    ) -> Result<(), Error> {
+        let tbl_meta_key = Key::TableMeta {
+            db: db_name.to_string(),
+            tbl: tbl_name.to_string(),
+        };
+
+        let mut tbl_meta = self
+            .store
+            .get::<TableMeta>(txn_id, KeySpace::Catalog, &tbl_meta_key)?
+            .ok_or(Error::TableDoesNotExist)?;
+
+        tbl_meta.insert_col_name(col_name);
+
+        self.store
+            .set(txn_id, KeySpace::Catalog, &tbl_meta_key, &tbl_meta)
             .map_err(From::from)
     }
 }
@@ -282,5 +361,87 @@ mod tests {
         });
         let db_meta = result.expect("Could not retrieve db meta");
         assert_eq!(db_meta.iter_tbl_names().len(), 0);
+    }
+
+    #[test]
+    fn test_create_column() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_name = "testtbl";
+        let col_name = "testcol";
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.create_table(txn_id, &db_name, &tbl_name)?;
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name)
+        });
+        assert_eq!(result.is_ok(), true, "Error occurred {:?}", result.err());
+    }
+
+    #[test]
+    fn test_create_column_tbl_does_not_exist() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_name = "testtbl";
+        let col_name = "testcol";
+        let result: Result<(), Error> =
+            store.with_txn(|txn_id| catalog.create_column(txn_id, &db_name, &tbl_name, &col_name));
+        assert_eq!(result, Err(Error::TableDoesNotExist));
+    }
+
+    #[test]
+    fn test_create_column_already_exists() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_name = "testtbl";
+        let col_name = "testcol";
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.create_table(txn_id, &db_name, &tbl_name)?;
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name)?;
+            catalog.create_column(txn_id, &db_name, &tbl_name, &col_name)
+        });
+        assert_eq!(result, Err(Error::ColumnAlreadyExists));
+    }
+
+    #[test]
+    fn test_list_columns() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_name = "testtbl";
+        let mut col_names = vec!["foo", "bar", "baz"];
+        let result: Result<Vec<String>, Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.create_table(txn_id, &db_name, &tbl_name)?;
+            for c in col_names.iter() {
+                catalog.create_column(txn_id, &db_name, &tbl_name, &c)?;
+            }
+            let tbl_meta = catalog.get_table_meta(txn_id, &db_name, &tbl_name)?;
+            let retrieved_col_names: Vec<String> =
+                tbl_meta.iter_col_names().map(|s| s.to_string()).collect();
+            Ok(retrieved_col_names)
+        });
+        let retrieved_col_names = result.expect("Could not retrieve column names");
+        col_names.sort();
+        assert_eq!(retrieved_col_names, col_names);
+    }
+
+    #[test]
+    fn test_list_columns_no_entries() {
+        let store = Store::new();
+        let catalog = Catalog::new(&store);
+        let db_name = "testdb";
+        let tbl_name = "testtbl";
+        let result: Result<(), Error> = store.with_txn(|txn_id| {
+            catalog.create_database(txn_id, &db_name)?;
+            catalog.create_table(txn_id, &db_name, &tbl_name)?;
+            let tbl_meta = catalog.get_table_meta(txn_id, &db_name, &tbl_name)?;
+            assert_eq!(tbl_meta.iter_col_names().len(), 0);
+            Ok(())
+        });
+        assert_eq!(result.is_ok(), true, "Error occurred: {:?}", result.err());
     }
 }
